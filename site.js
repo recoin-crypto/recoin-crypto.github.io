@@ -1,4 +1,4 @@
-// Cosmo Casino – финальный backend (авто-спин, тройка +1x, семёрки +15x, кнопки кубика/гонок)
+// Cosmo Casino – полный backend (исправлено колесо, запросы, авто-спин 1.5с, тройка +1x, семёрки +15x)
 const siteConfig = { debug: false, dbFile: '' };
 
 let currentUser = null;
@@ -366,7 +366,7 @@ async function incrementGamesPlayed() {
 
 // ================== ЗАПРОСЫ ==================
 async function requestDeposit() {
-    if (!currentUser) return;
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('captchaDeposit', 'depositCaptchaInput')) return;
     const amount = parseFloat(document.getElementById('depositAmount').value);
     const email = document.getElementById('depositEmail').value.trim();
@@ -378,14 +378,16 @@ async function requestDeposit() {
         amount,
         date: new Date().toLocaleString('ru-RU')
     };
-    await GradusServer.firebasePush(`${FIREBASE_URL}CosmoCasino/requests/payment.json`, JSON.stringify(payment));
-    GradusWeb.notify.success('Запрос на пополнение отправлен');
-    renderDistortedCaptcha('captchaDeposit');
-    document.getElementById('depositCaptchaInput').value = '';
+    try {
+        await GradusServer.firebasePush(`${FIREBASE_URL}CosmoCasino/requests/payment.json`, JSON.stringify(payment));
+        GradusWeb.notify.success('Запрос на пополнение отправлен');
+        renderDistortedCaptcha('captchaDeposit');
+        document.getElementById('depositCaptchaInput').value = '';
+    } catch (e) { GradusWeb.notify.error('Ошибка отправки запроса'); }
 }
 
 async function requestWithdraw() {
-    if (!currentUser) return;
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('captchaWithdraw', 'withdrawCaptchaInput')) return;
     const amount = parseFloat(document.getElementById('withdrawAmount').value);
     if (!amount || amount < 25 || amount > 15000) { GradusWeb.notify.warning('Сумма от 25 до 15 000 ₽'); return; }
@@ -395,10 +397,12 @@ async function requestWithdraw() {
         amount,
         date: new Date().toLocaleString('ru-RU')
     };
-    await GradusServer.firebasePush(`${FIREBASE_URL}CosmoCasino/requests/withdraw.json`, JSON.stringify(withdraw));
-    GradusWeb.notify.success('Запрос на вывод отправлен');
-    renderDistortedCaptcha('captchaWithdraw');
-    document.getElementById('withdrawCaptchaInput').value = '';
+    try {
+        await GradusServer.firebasePush(`${FIREBASE_URL}CosmoCasino/requests/withdraw.json`, JSON.stringify(withdraw));
+        GradusWeb.notify.success('Запрос на вывод отправлен');
+        renderDistortedCaptcha('captchaWithdraw');
+        document.getElementById('withdrawCaptchaInput').value = '';
+    } catch (e) { GradusWeb.notify.error('Ошибка отправки запроса'); }
 }
 
 async function attachEmail() {
@@ -458,12 +462,10 @@ async function playRocket() {
     };
 }
 
-// Слоты с новыми коэффициентами и авто-спином
 function countTriples(grid) {
     let normalTriples = 0;
     let sevenTriples = 0;
     const isSeven = (s) => s === '7️⃣';
-    // горизонтали
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 2; col++) {
             const a = grid[row][col], b = grid[row][col+1], c = grid[row][col+2];
@@ -473,14 +475,12 @@ function countTriples(grid) {
             }
         }
     }
-    // вертикали
     for (let col = 0; col < 5; col++) {
         if (grid[0][col] === grid[1][col] && grid[1][col] === grid[2][col]) {
             if (isSeven(grid[0][col])) sevenTriples++;
             else normalTriples++;
         }
     }
-    // диагонали
     if (grid[0][0] === grid[1][1] && grid[1][1] === grid[2][2]) {
         if (isSeven(grid[0][0])) sevenTriples++;
         else normalTriples++;
@@ -554,7 +554,7 @@ function startAutoSpin() {
         await spinSlots(true);
         autoSpinCount--;
         if (autoSpinCount <= 0) stopAutoSpin();
-    }, 3000);
+    }, 1500);
 }
 
 function stopAutoSpin() {
@@ -565,7 +565,6 @@ function stopAutoSpin() {
     document.getElementById('stopAutoSpin').disabled = true;
 }
 
-// Кубик
 function rollDice() {
     if (!selectedDiceType) return;
     const bet = parseFloat(document.getElementById('diceBet').value);
@@ -603,7 +602,6 @@ function rollDice() {
     }, 600);
 }
 
-// Колесо
 async function spinWheel() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('wheelBet').value);
@@ -613,6 +611,8 @@ async function spinWheel() {
     const win = Math.random() < 1/3;
     const wheel = document.getElementById('wheelSpinner');
     wheel.style.transition = 'transform 3s ease-out';
+    // Стрелка теперь вверху (благодаря rotate(180deg) в CSS), зелёный сектор начинается с 0 градусов.
+    // Значит, если выигрыш – останавливаемся на зелёном (0 или 360), иначе на красном (120-360).
     const target = win ? 0 : 120 + Math.floor(Math.random() * 240);
     wheel.style.transform = `rotate(${1440 + target}deg)`;
     setTimeout(async () => {
@@ -627,7 +627,6 @@ async function spinWheel() {
     }, 3100);
 }
 
-// Гонки
 function startRace() {
     if (!selectedRacer) return;
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
