@@ -1,6 +1,6 @@
-// Cosmo Casino – финальная версия с исправленным колесом, ракетой и подкруткой
+// Cosmo Casino – полный backend (все функции, исправленное колесо, мгновенный взрыв ракеты при подкрутке)
 const siteConfig = { debug: false, dbFile: '' };
-const RIG_PROBABILITY = 1;
+const RIG_PROBABILITY = 0.33; // 33% подкрутка
 
 let currentUser = null;
 let FIREBASE_URL = '';
@@ -418,21 +418,39 @@ function isRigged() {
     return Math.random() < RIG_PROBABILITY;
 }
 
-// Ракета – теперь при rigged кнопка "Забрать" вызывает мгновенный проигрыш
+// Ракета – мгновенный взрыв при подкрутке
 async function playRocket() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('rocketBet').value);
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
+
     const startBtn = document.getElementById('startRocket');
     const cashoutBtn = document.getElementById('cashoutRocket');
-    const coeffSpan = document.getElementById('rocketCoeff');
     const rocketImg = document.getElementById('rocketImg');
+    const coeffSpan = document.getElementById('rocketCoeff');
     startBtn.disabled = true;
     cashoutBtn.disabled = false;
+
+    const rigged = isRigged();
+    if (rigged) {
+        // Мгновенный проигрыш
+        cashoutBtn.disabled = true;
+        rocketImg.textContent = '💥';
+        rocketImg.style.bottom = '0px';
+        GradusWeb.notify.error('Ракета взорвалась!');
+        incrementGamesPlayed();
+        setTimeout(() => {
+            rocketImg.textContent = '🚀';
+            startBtn.disabled = false;
+        }, 500);
+        return;
+    }
+
+    // Честная игра
     let coeff = 1.0;
-    const crashPoint = isRigged() ? 1.0 + Math.random() * 0.5 : parseFloat((Math.random() * 10 + 1).toFixed(2));
+    const crashPoint = parseFloat((Math.random() * 10 + 1).toFixed(2));
     rocketImg.style.bottom = '0px';
     if (rocketTimer) clearInterval(rocketTimer);
     rocketTimer = setInterval(() => {
@@ -450,40 +468,20 @@ async function playRocket() {
             incrementGamesPlayed();
         }
     }, 300);
-    // Обработчик кнопки "Забрать"
-    cashoutBtn.onmouseenter = null; // сброс
-    cashoutBtn.onclick = null;
-    if (isRigged()) {
-        // При подкрутке: при наведении сразу взрыв
-        cashoutBtn.onmouseenter = () => {
-            clearInterval(rocketTimer);
-            coeff = crashPoint; // чтобы сообщение было о взрыве
-            coeffSpan.textContent = coeff.toFixed(2);
-            cashoutBtn.disabled = true;
-            startBtn.disabled = false;
-            rocketImg.textContent = '💥';
-            rocketImg.style.bottom = '0px';
-            setTimeout(() => { rocketImg.textContent = '🚀'; }, 500);
-            GradusWeb.notify.error(`Ракета взорвалась на x${crashPoint.toFixed(2)}`);
-            incrementGamesPlayed();
-            // Убираем обработчик, чтобы не срабатывал повторно
-            cashoutBtn.onmouseenter = null;
-        };
-    } else {
-        cashoutBtn.onclick = async () => {
-            clearInterval(rocketTimer);
-            const win = round(bet * coeff);
-            await updateBalance(win);
-            cashoutBtn.disabled = true;
-            startBtn.disabled = false;
-            rocketImg.style.bottom = '0px';
-            GradusWeb.notify.success(`Выигрыш: ${win.toFixed(2)} ₽ (x${coeff.toFixed(2)})`);
-            incrementGamesPlayed();
-        };
-    }
+
+    cashoutBtn.onclick = async () => {
+        clearInterval(rocketTimer);
+        const win = round(bet * coeff);
+        await updateBalance(win);
+        cashoutBtn.disabled = true;
+        startBtn.disabled = false;
+        rocketImg.style.bottom = '0px';
+        GradusWeb.notify.success(`Выигрыш: ${win.toFixed(2)} ₽ (x${coeff.toFixed(2)})`);
+        incrementGamesPlayed();
+    };
 }
 
-// Слоты с гарантированным проигрышем при rigged (функции generateRiggedGrid, generateFairGrid, countTriples, hasFiveSevensInRow – без изменений)
+// Слоты – гарантированный проигрыш при rigged
 function generateRiggedGrid() {
     const symbols = ['🍒', '🍋', '🔔', '💎', '⭐', '🍇', '7️⃣'];
     const grid = [];
@@ -492,7 +490,7 @@ function generateRiggedGrid() {
         for (let j = 0; j < 5; j++) row.push(symbols[Math.floor(Math.random() * symbols.length)]);
         grid.push(row);
     }
-    // Разрушение троек (как раньше)
+    // Разрушение троек
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 2; col++) {
             if (grid[row][col] === grid[row][col+1] && grid[row][col+1] === grid[row][col+2]) {
@@ -519,6 +517,7 @@ function generateRiggedGrid() {
         do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[1][3]);
         grid[1][3] = newSymbol;
     }
+    // Убираем пять семёрок в строке
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 1; col++) {
             if (grid[row][col] === '7️⃣' && grid[row][col+1] === '7️⃣' && grid[row][col+2] === '7️⃣' && grid[row][col+3] === '7️⃣' && grid[row][col+4] === '7️⃣') {
@@ -646,7 +645,7 @@ function stopAutoSpin() {
     document.getElementById('stopAutoSpin').disabled = true;
 }
 
-// Кубик – без изменений
+// Кубик
 function rollDice() {
     if (!selectedDiceType) return;
     const bet = parseFloat(document.getElementById('diceBet').value);
@@ -698,7 +697,7 @@ function rollDice() {
     }, 600);
 }
 
-// ================== НОВОЕ КОЛЕСО (абсолютно независимое вращение) ==================
+// Колесо – выигрыш определяется до вращения, угол соответствует сектору
 async function spinWheel() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('wheelBet').value);
@@ -706,36 +705,25 @@ async function spinWheel() {
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
 
-    const wheel = document.getElementById('wheelSpinner');
-    // Сбрасываем предыдущий transition и transform, чтобы каждый спин был с нуля
-    wheel.style.transition = 'none';
-    wheel.style.transform = 'rotate(0deg)';
-    // Принудительная перерисовка
-    wheel.offsetHeight;
-    // Вычисляем случайный угол от 360 до 1080 (1–3 полных оборота)
-    const fullRotations = 360 + Math.floor(Math.random() * 721); // от 360 до 1080
-    // После остановки берём остаток от деления на 360, чтобы определить сектор (0–360)
-    // Зелёный сектор: от 0 до 120 градусов (по conic-gradient #4caf50 0deg 120deg)
-    let win;
-    if (isRigged()) {
-        // Подкрутка: принудительно выбираем красный сектор (угол от 120 до 360)
-        win = false;
-        const redAngle = 120 + Math.floor(Math.random() * 240); // 120–359
-        // Чтобы после остановки стрелка (вверху) показывала на этот угол, колесо должно быть повёрнуто на (360 - redAngle)
-        const targetStop = (360 - redAngle) % 360;
-        const totalRotation = fullRotations - (fullRotations % 360) + targetStop;
-        wheel.style.transition = 'transform 3s ease-out';
-        wheel.style.transform = `rotate(${totalRotation}deg)`;
+    // Определяем выигрыш до вращения
+    const win = isRigged() ? false : Math.random() < 1/3;
+    // Выбираем финальный угол в зависимости от результата
+    let finalAngle;
+    if (win) {
+        // Зелёный сектор: от 0 до 120 градусов
+        finalAngle = Math.floor(Math.random() * 120);
     } else {
-        // Честная игра: случайный финальный угол
-        const randomStop = Math.floor(Math.random() * 360);
-        const totalRotation = fullRotations - (fullRotations % 360) + randomStop;
-        wheel.style.transition = 'transform 3s ease-out';
-        wheel.style.transform = `rotate(${totalRotation}deg)`;
-        // Определяем выигрыш по остатку: зелёный – если 0–120
-        const finalAngle = totalRotation % 360;
-        win = finalAngle >= 0 && finalAngle < 120;
+        // Красный сектор: от 120 до 360 градусов
+        finalAngle = 120 + Math.floor(Math.random() * 240);
     }
+
+    // Число полных оборотов (2-5)
+    const fullRotations = (Math.floor(Math.random() * 4) + 2) * 360;
+    const totalRotation = fullRotations + finalAngle;
+
+    const wheel = document.getElementById('wheelSpinner');
+    wheel.style.transition = 'transform 3s ease-out';
+    wheel.style.transform = `rotate(${totalRotation}deg)`;
 
     setTimeout(async () => {
         if (win) {
@@ -746,11 +734,10 @@ async function spinWheel() {
             GradusWeb.notify.error('Не повезло. Попробуйте ещё раз.');
         }
         incrementGamesPlayed();
-        // Не сбрасываем transform, чтобы колесо осталось в новом положении, как в реальном казино
     }, 3100);
 }
 
-// Гонки – без изменений
+// Гонки
 function startRace() {
     if (!selectedRacer) return;
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
