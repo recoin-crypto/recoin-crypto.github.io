@@ -2,133 +2,235 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Gradus Static — Демонстрация безопасности</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmo Casino</title>
     <script src="gradus-web.js"></script>
     <script src="database.js"></script>
     <script src="server.js"></script>
     <style>
-        body { font-family: Arial; max-width: 650px; margin: 20px auto; padding: 0 10px; }
-        .block { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 10px; }
-        .note-item { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
-        .note-text { flex: 1; word-break: break-word; }
-        .delete-btn { margin-left: 10px; cursor: pointer; background: none; border: none; color: #f44336; font-size: 1.2rem; }
-        .updates { background: #e8f5e9; border-left: 5px solid #4caf50; padding: 10px 15px; border-radius: 6px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a2e;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { width: 100%; max-width: 1000px; }
+        h1 { text-align: center; color: #ffd700; font-size: 2.5rem; margin: 1rem 0; }
+        .user-bar {
+            background: #1a1a4a;
+            padding: 15px 20px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .user-bar button { padding: 8px 16px; }
+        .game-menu {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .game-btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 10px;
+            background: #2a2a6a;
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+            font-size: 0.95rem;
+        }
+        .game-btn:hover { background: #3a3a8a; }
+        .game-btn.active { background: #ffd700; color: #0a0a2e; }
+        .game-section {
+            display: none;
+            background: #1a1a4a;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .game-section.active { display: block; }
+
+        .auth-form, .modal-content {
+            background: #1a1a4a;
+            border-radius: 15px;
+            padding: 20px;
+            max-width: 400px;
+            margin: 0 auto;
+            width: 90%;
+        }
+        input, select, button {
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #3a3a6a;
+            background: #0a0a2e;
+            color: #fff;
+            margin: 6px 0;
+            width: 100%;
+            font-size: 1rem;
+        }
+        button {
+            background: #4f46e5;
+            cursor: pointer;
+            border: none;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background: #4338ca; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .balance { font-size: 1.8rem; color: #ffd700; font-weight: bold; }
+        .slot-machine { display: flex; justify-content: center; gap: 15px; font-size: 3rem; }
+        .wheel {
+            width: 200px; height: 200px; border-radius: 50%;
+            border: 5px solid #fff; margin: 20px auto;
+            background: conic-gradient(#4caf50 0deg 120deg, #f44336 120deg 360deg);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .modal-content { text-align: center; }
+
+        /* Адаптивность */
+        @media (max-width: 600px) {
+            h1 { font-size: 2rem; }
+            .game-btn { font-size: 0.85rem; padding: 8px 12px; }
+            .slot-machine { font-size: 2rem; }
+            .user-bar { flex-direction: column; align-items: flex-start; }
+        }
     </style>
 </head>
 <body>
-    <h1>🛡️ Gradus Static — Безопасное демо</h1>
-
-    <!-- Блок об обновлении -->
-    <div class="updates">
-        <strong>🔄 Что нового в этой версии:</strong>
-        <ul style="margin: 8px 0 0 20px;">
-            <li><code>SecretStorage</code> — шифрованное хранилище для API‑ключей, токенов, паролей (AES‑GCM)</li>
-            <li>Защита от XSS‑атак (авто‑санитизация всех подстановок)</li>
-            <li>Защита от открытия консоли (F12) — обнаружение и очистка секретов</li>
-            <li>Исправлены ошибки сохранения данных в БД</li>
-        </ul>
+<div class="container">
+    <h1>🚀 Cosmo Casino</h1>
+    <div class="user-bar">
+        <span class="balance" id="balanceDisplay">0.00 ₽</span>
+        <div id="authControls">
+            <button onclick="showAuth()">Войти / Регистрация</button>
+        </div>
     </div>
 
-    <!-- Приветствие и демонстрация кэша / SecretStorage -->
-    <div class="block">
-        <p>👋 Привет, <strong>{cache_read:username}</strong>! (из кэша)</p>
-        <p>🔑 Превью API‑ключа: <strong>{get_api_key_preview}</strong> (из SecretStorage)</p>
-        <p>📅 Сегодня: {date:ru-RU} | 🕒 Время: {time:ru-RU}</p>
-        <p>🎲 Случайное число (1–100): {random_int:1-100}</p>
-        <p>🔐 Генератор пароля (16 зн.): {random_password:16}</p>
-        <p>🧮 Выражение 10*7+3 = {calc:10*7+3}</p>
-        <p>🔊 Верхний регистр "hello": {upper:hello}</p>
+    <div class="game-menu">
+        <button class="game-btn active" data-game="rocket">Ракета</button>
+        <button class="game-btn" data-game="slots">Слоты</button>
+        <button class="game-btn" data-game="guess">Угадайка</button>
+        <button class="game-btn" data-game="wheel">Колесо фортуны</button>
+        <button class="game-btn" data-game="daily">Гонки (бесплатно)</button>
+        <button class="game-btn" data-game="profile">Профиль</button>
     </div>
 
-    <!-- Управление заметками (демонстрация БД, уведомлений, XSS‑защиты) -->
-    <div class="block">
-        <h3>📝 Заметки (сохраняются в GradusDB)</h3>
-        <input type="text" id="noteInput" placeholder="Введите текст заметки">
-        <button onclick="addNote()">➕ Добавить</button>
-        <ul id="notesList"></ul>
+    <!-- Игра: Ракета -->
+    <div id="rocket" class="game-section active">
+        <h2>Ракета</h2>
+        <p>Ставка: <input type="number" id="rocketBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+        <button id="startRocket">Запустить</button>
+        <button id="cashoutRocket" disabled>Забрать (x<span id="rocketCoeff">1.00</span>)</button>
+        <div id="rocketCanvas" style="width:100%; height:200px; background:#000; margin-top:10px; position:relative;">
+            <div id="rocketLine" style="position:absolute; bottom:0; left:0; height:100%; width:2px; background:red;"></div>
+        </div>
     </div>
 
-    <script>
-        // Индекс заметок храним в кэше, чтобы быстро получать список UUID
-        const NOTES_INDEX_KEY = 'gradus_notes_index';
+    <!-- Слоты -->
+    <div id="slots" class="game-section">
+        <h2>Слоты</h2>
+        <p>Ставка: <input type="number" id="slotBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+        <button id="spinSlots">Крутить</button>
+        <div class="slot-machine" id="slotResult">
+            <span>🍒</span><span>🍒</span><span>🍒</span>
+        </div>
+    </div>
 
-        async function addNote() {
-            const input = document.getElementById('noteInput');
-            const text = input.value.trim();
-            if (!text) {
-                GradusWeb.notify.warning('Введите текст заметки!', 2000);
-                return;
-            }
+    <!-- Угадайка -->
+    <div id="guess" class="game-section">
+        <h2>Угадайка</h2>
+        <p>Ставка: <input type="number" id="guessBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:10px;">
+            <button onclick="playGuess('number', 1)">1</button>
+            <button onclick="playGuess('number', 2)">2</button>
+            <button onclick="playGuess('number', 3)">3</button>
+            <button onclick="playGuess('number', 4)">4</button>
+            <button onclick="playGuess('number', 5)">5</button>
+            <button onclick="playGuess('number', 6)">6</button>
+            <button onclick="playGuess('group', 'low')">Меньше (1-3)</button>
+            <button onclick="playGuess('group', 'high')">Больше (4-6)</button>
+        </div>
+    </div>
 
-            // Санитизируем (защита от XSS)
-            const safeText = GradusWeb.security.sanitizeHTML(text);
-            const noteId = 'note_' + GradusWeb.generate.uuid();
+    <!-- Колесо фортуны -->
+    <div id="wheel" class="game-section">
+        <h2>Колесо фортуны</h2>
+        <p>Ставка: <input type="number" id="wheelBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+        <button id="spinWheel">Крутить</button>
+        <div class="wheel" id="wheelCanvas"></div>
+    </div>
 
-            // Сохраняем заметку в БД
-            await GradusDB.set(noteId, safeText);
+    <!-- Ежедневные гонки -->
+    <div id="daily" class="game-section">
+        <h2>Ежедневные гонки</h2>
+        <p>Выберите гонщика (бесплатно):</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button onclick="dailyRace(1)">🚗 Красный</button>
+            <button onclick="dailyRace(2)">🚙 Синий</button>
+            <button onclick="dailyRace(3)">🏎️ Зеленый</button>
+            <button onclick="dailyRace(4)">🚕 Желтый</button>
+        </div>
+    </div>
 
-            // Обновляем индекс
-            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
-            if (typeof index === 'string') index = JSON.parse(index); // на случай старого формата
-            index.push(noteId);
-            GradusWeb.cache.set(NOTES_INDEX_KEY, index);
+    <!-- Профиль -->
+    <div id="profile" class="game-section">
+        <h2>Профиль</h2>
+        <p>Email: <span id="profileEmail">—</span></p>
+        <p>Сыграно игр: <span id="profileGames">0</span></p>
+        <button id="attachEmailBtn" onclick="prepareAttachEmail()">Привязать почту (+15 ₽)</button>
 
-            // Уведомление и обновление списка
-            GradusWeb.notify.success('Заметка добавлена!', 2000);
-            await renderNotesList();
-            input.value = '';
-        }
+        <h3>Пополнить</h3>
+        <input type="number" id="depositAmount" min="15" placeholder="Сумма">
+        <input type="email" id="depositEmail" placeholder="Email для уведомления">
+        <button onclick="prepareDeposit()">Отправить запрос</button>
 
-        async function deleteNote(noteId) {
-            // Удаляем из БД
-            await GradusDB.delete(noteId);
+        <h3>Вывести</h3>
+        <input type="number" id="withdrawAmount" min="50" placeholder="Сумма">
+        <button id="withdrawBtn" disabled onclick="prepareWithdraw()">Запросить вывод</button>
+    </div>
+</div>
 
-            // Обновляем индекс
-            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
-            if (typeof index === 'string') index = JSON.parse(index);
-            index = index.filter(id => id !== noteId);
-            GradusWeb.cache.set(NOTES_INDEX_KEY, index);
+<!-- Модальное окно капчи -->
+<div class="modal-overlay" id="captchaModal">
+    <div class="modal-content">
+        <h3>Подтвердите действие</h3>
+        <div id="captchaBox"></div>
+        <button id="captchaConfirm">Отправить</button>
+        <button id="captchaCancel" style="background:#666;">Отмена</button>
+    </div>
+</div>
 
-            GradusWeb.notify.info('Заметка удалена', 2000);
-            await renderNotesList();
-        }
+<!-- Модальное окно авторизации -->
+<div id="authModal" class="auth-form" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1001; width:90%; max-width:400px;">
+    <h2>Вход / Регистрация</h2>
+    <input type="text" id="loginUser" placeholder="Логин">
+    <input type="password" id="loginPass" placeholder="Пароль">
+    <input type="email" id="loginEmail" placeholder="Email (необязательно, +15 ₽)">
+    <button onclick="prepareLogin()">Войти / Зарегистрироваться</button>
+    <button onclick="closeAuth()" style="background:#666;">Закрыть</button>
+</div>
 
-        async function renderNotesList() {
-            const list = document.getElementById('notesList');
-            if (!list) return;
-
-            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
-            if (typeof index === 'string') index = JSON.parse(index);
-
-            if (!index.length) {
-                list.innerHTML = '<p>Пока нет заметок.</p>';
-                return;
-            }
-
-            let html = '';
-            for (let noteId of index) {
-                const noteText = await GradusDB.get(noteId);
-                if (noteText) {
-                    html += `<li class="note-item">
-                        <span class="note-text">${noteText}</span>
-                        <button class="delete-btn" onclick="deleteNote('${noteId}')">✕</button>
-                    </li>`;
-                }
-            }
-            list.innerHTML = html || '<p>Нет заметок.</p>';
-        }
-
-        // При загрузке страницы отрисовываем заметки
-        window.addEventListener('load', async () => {
-            // Даём фреймворку время инициализироваться (если нужно)
-            setTimeout(async () => {
-                await renderNotesList();
-            }, 100);
-        });
-    </script>
-
-    <script src="client.js"></script>
-    <script src="core.js"></script>
-    <script src="site.js"></script>
+<script src="client.js"></script>
+<script src="core.js"></script>
+<script src="site.js"></script>
 </body>
 </html>
