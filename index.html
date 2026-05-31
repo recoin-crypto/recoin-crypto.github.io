@@ -2,56 +2,133 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FortHosts - хостинг</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Gradus Static — Демонстрация безопасности</title>
+    <script src="gradus-web.js"></script>
+    <script src="database.js"></script>
+    <script src="server.js"></script>
+    <style>
+        body { font-family: Arial; max-width: 650px; margin: 20px auto; padding: 0 10px; }
+        .block { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 10px; }
+        .note-item { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
+        .note-text { flex: 1; word-break: break-word; }
+        .delete-btn { margin-left: 10px; cursor: pointer; background: none; border: none; color: #f44336; font-size: 1.2rem; }
+        .updates { background: #e8f5e9; border-left: 5px solid #4caf50; padding: 10px 15px; border-radius: 6px; }
+    </style>
 </head>
 <body>
-    <header>
-		<nav>
-			<div class="logo">FortHosts</div>
-			<ul>
-				<li><a href="#services" class="linkf">Услуги</a></li>
-				<li><a href="#about" class="linkf">О нас</a></li>
-				<li><a href="#contact" class="linkf">Контакты</a></li>
-				<li class="auth-link"><a href="/login">Вход/Регистрация</a></li>
-			</ul>
-		</nav>
-	</header>
+    <h1>🛡️ Gradus Static — Безопасное демо</h1>
 
+    <!-- Блок об обновлении -->
+    <div class="updates">
+        <strong>🔄 Что нового в этой версии:</strong>
+        <ul style="margin: 8px 0 0 20px;">
+            <li><code>SecretStorage</code> — шифрованное хранилище для API‑ключей, токенов, паролей (AES‑GCM)</li>
+            <li>Защита от XSS‑атак (авто‑санитизация всех подстановок)</li>
+            <li>Защита от открытия консоли (F12) — обнаружение и очистка секретов</li>
+            <li>Исправлены ошибки сохранения данных в БД</li>
+        </ul>
+    </div>
 
-    <section id="hero">
-        <h1>Надежный хостинг для вашего сайта</h1>
-        <button class="order-button">Заказать хостинг</button>
-    </section>
-	<section id="about">
-		<h2>О нас</h2>
-		<div class="about-content">
-			<div class="about-text">
-				<p>Мы — команда профессионалов в сфере хостинга...</p>
-			</div>
-			<div class="about-image">
-				<img src="images/about.jpg" alt="Наша команда">
-			</div>
-		</div>
-	</section>
+    <!-- Приветствие и демонстрация кэша / SecretStorage -->
+    <div class="block">
+        <p>👋 Привет, <strong>{cache_read:username}</strong>! (из кэша)</p>
+        <p>🔑 Превью API‑ключа: <strong>{get_api_key_preview}</strong> (из SecretStorage)</p>
+        <p>📅 Сегодня: {date:ru-RU} | 🕒 Время: {time:ru-RU}</p>
+        <p>🎲 Случайное число (1–100): {random_int:1-100}</p>
+        <p>🔐 Генератор пароля (16 зн.): {random_password:16}</p>
+        <p>🧮 Выражение 10*7+3 = {calc:10*7+3}</p>
+        <p>🔊 Верхний регистр "hello": {upper:hello}</p>
+    </div>
 
+    <!-- Управление заметками (демонстрация БД, уведомлений, XSS‑защиты) -->
+    <div class="block">
+        <h3>📝 Заметки (сохраняются в GradusDB)</h3>
+        <input type="text" id="noteInput" placeholder="Введите текст заметки">
+        <button onclick="addNote()">➕ Добавить</button>
+        <ul id="notesList"></ul>
+    </div>
 
-    <section id="services">
-		<h2>Наши услуги</h2>
-		<div class="service-box">
-			<h3>Виртуальный хостинг</h3>
-			<p>Быстрое и надёжное размещение сайтов.</p>
-			<button class="price-button">Узнать цену →</button>
-		</div>
-	</section>
+    <script>
+        // Индекс заметок храним в кэше, чтобы быстро получать список UUID
+        const NOTES_INDEX_KEY = 'gradus_notes_index';
 
-    <footer>
-        <p>© 2025 FortHosts. Все права защищены.</p>
-		<p>*   *   *</p>
-		<p>Контакты</p>
-		<p>EMAIL: forthosts@gmail.com</p>
-    </footer>
-    <script src="script.js"></script>
+        async function addNote() {
+            const input = document.getElementById('noteInput');
+            const text = input.value.trim();
+            if (!text) {
+                GradusWeb.notify.warning('Введите текст заметки!', 2000);
+                return;
+            }
+
+            // Санитизируем (защита от XSS)
+            const safeText = GradusWeb.security.sanitizeHTML(text);
+            const noteId = 'note_' + GradusWeb.generate.uuid();
+
+            // Сохраняем заметку в БД
+            await GradusDB.set(noteId, safeText);
+
+            // Обновляем индекс
+            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
+            if (typeof index === 'string') index = JSON.parse(index); // на случай старого формата
+            index.push(noteId);
+            GradusWeb.cache.set(NOTES_INDEX_KEY, index);
+
+            // Уведомление и обновление списка
+            GradusWeb.notify.success('Заметка добавлена!', 2000);
+            await renderNotesList();
+            input.value = '';
+        }
+
+        async function deleteNote(noteId) {
+            // Удаляем из БД
+            await GradusDB.delete(noteId);
+
+            // Обновляем индекс
+            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
+            if (typeof index === 'string') index = JSON.parse(index);
+            index = index.filter(id => id !== noteId);
+            GradusWeb.cache.set(NOTES_INDEX_KEY, index);
+
+            GradusWeb.notify.info('Заметка удалена', 2000);
+            await renderNotesList();
+        }
+
+        async function renderNotesList() {
+            const list = document.getElementById('notesList');
+            if (!list) return;
+
+            let index = GradusWeb.cache.get(NOTES_INDEX_KEY) || [];
+            if (typeof index === 'string') index = JSON.parse(index);
+
+            if (!index.length) {
+                list.innerHTML = '<p>Пока нет заметок.</p>';
+                return;
+            }
+
+            let html = '';
+            for (let noteId of index) {
+                const noteText = await GradusDB.get(noteId);
+                if (noteText) {
+                    html += `<li class="note-item">
+                        <span class="note-text">${noteText}</span>
+                        <button class="delete-btn" onclick="deleteNote('${noteId}')">✕</button>
+                    </li>`;
+                }
+            }
+            list.innerHTML = html || '<p>Нет заметок.</p>';
+        }
+
+        // При загрузке страницы отрисовываем заметки
+        window.addEventListener('load', async () => {
+            // Даём фреймворку время инициализироваться (если нужно)
+            setTimeout(async () => {
+                await renderNotesList();
+            }, 100);
+        });
+    </script>
+
+    <script src="client.js"></script>
+    <script src="core.js"></script>
+    <script src="site.js"></script>
 </body>
 </html>
