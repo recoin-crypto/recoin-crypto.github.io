@@ -21,23 +21,33 @@ const GradusStatic = {
             await window.initSite();
         }
 
-        // Если debug: false – включаем защиту от DevTools, иначе выводим сообщение
-        if (!this._config.debug) {
-            if (window.GradusWeb && GradusWeb.security) {
-                GradusWeb.security.enableDevToolsProtection(() => {
+        // Управление защитой: отключаем только если debug явно равен true
+        const debugEnabled = this._config.debug === true;
+        console.log('[CORE] Debug mode:', debugEnabled);
+
+        if (!debugEnabled) {
+            if (window.GradusWeb && window.GradusWeb.security) {
+                window.GradusWeb.security.enableDevToolsProtection(() => {
                     alert('Обнаружены инструменты разработчика! Данные удалены.');
-                    GradusWeb.cache.clear();
+                    window.GradusWeb.cache.clear();
                     location.reload();
                 });
+                console.log('[CORE] Защита от DevTools включена.');
+            } else {
+                console.warn('[CORE] GradusWeb.security не найден. Защита не включена.');
             }
         } else {
             console.log('[CORE] Защита от DevTools отключена (debug: true)');
+            // Если нужно явно отключить ранее включённую защиту (например, при перезагрузке страницы с debug:true)
+            if (window.GradusWeb && window.GradusWeb.security) {
+                window.GradusWeb.security.disableDevToolsProtection();
+            }
         }
 
         // Запускаем рендеринг после загрузки DOM
         const start = async () => {
             if (window.GradusClient) {
-                await GradusClient.process(this._config, this._handlers);
+                await window.GradusClient.process(this._config, this._handlers);
             }
         };
         if (document.readyState === 'loading') {
