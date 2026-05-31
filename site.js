@@ -18,6 +18,12 @@ async function initSite() {
         '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155'
     );
 
+    window.GradusWeb.security.enableDevToolsProtection(() => {
+        alert('Обнаружены инструменты разработчика! Данные удалены.');
+        window.GradusWeb.cache.clear();
+        location.reload();
+    });
+
     const saved = GradusWeb.cache.get('currentUser');
     if (saved) {
         const userRef = `CosmoCasino/user/${saved.username}`;
