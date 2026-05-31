@@ -1,6 +1,6 @@
 // Cosmo Casino – полный backend (все функции, исправленное колесо, мгновенный взрыв ракеты при подкрутке)
 const siteConfig = { debug: false, dbFile: '' };
-const RIG_PROBABILITY = 0.33; // 33% подкрутка
+const RIG_PROBABILITY = 0.33;
 
 let currentUser = null;
 let FIREBASE_URL = '';
@@ -705,9 +705,14 @@ async function spinWheel() {
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
 
-    // Определяем выигрыш до вращения
-    const win = isRigged() ? false : Math.random() < 1/3;
-    // Выбираем финальный угол в зависимости от результата
+    const wheel = document.getElementById('wheelSpinner');
+    // Сбрасываем колесо в исходное положение (без анимации)
+    wheel.style.transition = 'none';
+    wheel.style.transform = 'rotate(0deg)';
+    // Форсируем перерисовку, чтобы браузер применил сброс до начала новой анимации
+    wheel.offsetHeight;
+
+    const win = isRigged() ? false : Math.random() < RIG_PROBABILITY;
     let finalAngle;
     if (win) {
         // Зелёный сектор: от 0 до 120 градусов
@@ -717,19 +722,17 @@ async function spinWheel() {
         finalAngle = 120 + Math.floor(Math.random() * 240);
     }
 
-    // Число полных оборотов (2-5)
     const fullRotations = (Math.floor(Math.random() * 4) + 2) * 360;
     const totalRotation = fullRotations + finalAngle;
 
-    const wheel = document.getElementById('wheelSpinner');
     wheel.style.transition = 'transform 3s ease-out';
     wheel.style.transform = `rotate(${totalRotation}deg)`;
 
     setTimeout(async () => {
         if (win) {
-            const winAmount = round(bet * 2.4);
+            const winAmount = round(bet * 2.7);   // новый коэффициент 2.7
             await updateBalance(winAmount);
-            GradusWeb.notify.success(`Поздравляем! Выигрыш: ${winAmount.toFixed(2)} ₽ (x2.4)`);
+            GradusWeb.notify.success(`Поздравляем! Выигрыш: ${winAmount.toFixed(2)} ₽ (x2.7)`);
         } else {
             GradusWeb.notify.error('Не повезло. Попробуйте ещё раз.');
         }
