@@ -1,15 +1,16 @@
 /**
  * Gradus Web — Утилиты для статических сайтов (JavaScript)
- * Версия 2.2.0 — усиленный анти‑DevTools + SecretStorage (AES‑GCM).
- * Включает: Gradus Cache, Gradus Encoder, Gradus Captcha,
- *           Gradus DDoS-Protection, Gradus Notify, генераторы,
- *           Gradus SecretStorage, Gradus Security.
+ * Версия 2.3 — максимальная безопасность, скрытая соль, очистка SecretStorage, защита от F12, встроенный AntiCheat с onHack.
  */
 (function (window) {
     'use strict';
 
+    // ========== ПРИВАТНЫЕ ПЕРЕМЕННЫЕ ==========
+    const _salt = 'GradusSalt2025!X#_v2.3';
+    const _prefix = 'gs_sec_v3_';
+
     const GradusWeb = {
-        version: '2.2.0',
+        version: '2.3.0',
 
         _log(type, msg) {
             const prefix = '[GRADUS-WEB]';
@@ -18,20 +19,14 @@
             else console.log(prefix, msg);
         },
 
-        // ========== 1. КЭШ (LocalStorage с TTL) ==========
+        // ========== 1. КЭШ ==========
         cache: {
             set(key, value, ttlSeconds = 3600) {
                 try {
-                    const item = {
-                        value: value,
-                        expires: Date.now() + ttlSeconds * 1000
-                    };
+                    const item = { value: value, expires: Date.now() + ttlSeconds * 1000 };
                     localStorage.setItem('gradus_cache_' + key, JSON.stringify(item));
                     return true;
-                } catch (e) {
-                    GradusWeb._log('error', 'Cache set failed: ' + e.message);
-                    return false;
-                }
+                } catch (e) { return false; }
             },
             get(key) {
                 try {
@@ -43,9 +38,7 @@
                         return null;
                     }
                     return item.value;
-                } catch (e) {
-                    return null;
-                }
+                } catch (e) { return null; }
             },
             remove(key) { localStorage.removeItem('gradus_cache_' + key); },
             clear() {
@@ -93,9 +86,7 @@
         _buildDecodeMap() {
             if (this._decodeMap) return;
             this._decodeMap = {};
-            for (let char in this._charMap) {
-                this._decodeMap[this._charMap[char]] = char;
-            }
+            for (let char in this._charMap) this._decodeMap[this._charMap[char]] = char;
         },
 
         encode(text) {
@@ -104,11 +95,7 @@
             let result = '';
             for (let i = 0; i < text.length; i++) {
                 const ch = text[i];
-                if (this._charMap.hasOwnProperty(ch)) {
-                    result += this._charMap[ch];
-                } else {
-                    result += ch;
-                }
+                result += this._charMap.hasOwnProperty(ch) ? this._charMap[ch] : ch;
             }
             return result;
         },
@@ -116,8 +103,7 @@
         decode(encoded) {
             if (!encoded && encoded !== '') return '';
             this._buildDecodeMap();
-            let result = '';
-            let i = 0;
+            let result = '', i = 0;
             while (i < encoded.length) {
                 if (encoded[i] === '_' && i + 3 < encoded.length) {
                     const code = encoded.substr(i, 4);
@@ -133,45 +119,28 @@
             return result;
         },
 
-        // ========== 3. GRADUS CAPTCHA ==========
+        // ========== 3. CAPTCHA ==========
         captcha: {
             generate() {
-                const a = Math.floor(Math.random() * 10) + 1;
-                const b = Math.floor(Math.random() * 10) + 1;
-                const ops = ['+', '-', '*'];
-                const op = ops[Math.floor(Math.random() * ops.length)];
+                const a = Math.floor(Math.random() * 10) + 1, b = Math.floor(Math.random() * 10) + 1;
+                const ops = ['+', '-', '*'], op = ops[Math.floor(Math.random() * ops.length)];
                 let answer;
-                switch (op) {
-                    case '+': answer = a + b; break;
-                    case '-': answer = a - b; break;
-                    case '*': answer = a * b; break;
-                }
+                switch (op) { case '+': answer = a + b; break; case '-': answer = a - b; break; case '*': answer = a * b; break; }
                 return { question: `${a} ${op} ${b} = ?`, answer };
             },
-            check(generated, userAnswer) {
-                if (!generated || userAnswer === undefined) return false;
-                return parseInt(userAnswer) === generated.answer;
-            },
+            check(generated, userAnswer) { return generated && parseInt(userAnswer) === generated.answer; },
             render(elementId) {
                 const el = document.getElementById(elementId);
                 if (!el) return null;
                 const cap = this.generate();
-                el.innerHTML = `
-                    <div class="gradus-captcha">
-                        <span>${cap.question}</span>
-                        <input type="text" class="gradus-captcha-input" placeholder="Ответ" />
-                        <input type="hidden" class="gradus-captcha-answer" value="${cap.answer}" />
-                    </div>
-                `;
+                el.innerHTML = `<div class="gradus-captcha"><span>${cap.question}</span><input type="text" class="gradus-captcha-input" placeholder="Ответ" /><input type="hidden" class="gradus-captcha-answer" value="${cap.answer}" /></div>`;
                 return cap;
             },
             verify(elementId) {
                 const el = document.getElementById(elementId);
                 if (!el) return false;
-                const input = el.querySelector('.gradus-captcha-input');
-                const hidden = el.querySelector('.gradus-captcha-answer');
-                if (!input || !hidden) return false;
-                return parseInt(input.value) === parseInt(hidden.value);
+                const input = el.querySelector('.gradus-captcha-input'), hidden = el.querySelector('.gradus-captcha-answer');
+                return input && hidden && parseInt(input.value) === parseInt(hidden.value);
             }
         },
 
@@ -180,16 +149,9 @@
             _store: {},
             isAllowed(id, maxRequests = 5, intervalSeconds = 10) {
                 const now = Date.now();
-                if (!this._store[id]) {
-                    this._store[id] = { count: 1, resetTime: now + intervalSeconds * 1000 };
-                    return true;
-                }
+                if (!this._store[id]) { this._store[id] = { count: 1, resetTime: now + intervalSeconds * 1000 }; return true; }
                 const record = this._store[id];
-                if (now > record.resetTime) {
-                    record.count = 1;
-                    record.resetTime = now + intervalSeconds * 1000;
-                    return true;
-                }
+                if (now > record.resetTime) { record.count = 1; record.resetTime = now + intervalSeconds * 1000; return true; }
                 if (record.count >= maxRequests) return false;
                 record.count++;
                 return true;
@@ -202,31 +164,23 @@
         generate: {
             uuid() {
                 return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                    const r = Math.random() * 16 | 0;
-                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
                     return v.toString(16);
                 });
             },
             password(length = 12) {
                 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=';
                 const array = new Uint32Array(length);
-                if (window.crypto && window.crypto.getRandomValues) {
-                    window.crypto.getRandomValues(array);
-                } else {
-                    for (let i = 0; i < length; i++) array[i] = Math.floor(Math.random() * 0x100000000);
-                }
+                if (window.crypto && window.crypto.getRandomValues) crypto.getRandomValues(array);
+                else for (let i = 0; i < length; i++) array[i] = Math.floor(Math.random() * 0x100000000);
                 let pass = '';
                 for (let i = 0; i < length; i++) pass += chars[array[i] % chars.length];
                 return pass;
             },
             randomInt(min, max) {
-                const range = max - min + 1;
-                const array = new Uint32Array(1);
-                if (window.crypto && window.crypto.getRandomValues) {
-                    window.crypto.getRandomValues(array);
-                } else {
-                    array[0] = Math.floor(Math.random() * 0x100000000);
-                }
+                const range = max - min + 1, array = new Uint32Array(1);
+                if (window.crypto && window.crypto.getRandomValues) crypto.getRandomValues(array);
+                else array[0] = Math.floor(Math.random() * 0x100000000);
                 return min + (array[0] % range);
             }
         },
@@ -246,20 +200,11 @@
                 const container = this._ensureContainer();
                 const toast = document.createElement('div');
                 const colors = { success: '#4caf50', error: '#f44336', info: '#2196f3', warning: '#ff9800' };
-                toast.style.cssText = `
-                    background-color:${colors[type] || colors.info};
-                    color:#fff;padding:12px 20px;border-radius:8px;
-                    box-shadow:0 4px 12px rgba(0,0,0,0.15);
-                    font-family:Segoe UI,system-ui,sans-serif;font-size:14px;
-                    min-width:200px;opacity:0;transition:opacity 0.3s;
-                `;
+                toast.style.cssText = `background-color:${colors[type] || colors.info};color:#fff;padding:12px 20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-family:Segoe UI,system-ui,sans-serif;font-size:14px;min-width:200px;opacity:0;transition:opacity 0.3s;`;
                 toast.textContent = message;
                 container.appendChild(toast);
                 setTimeout(() => toast.style.opacity = '1', 10);
-                setTimeout(() => {
-                    toast.style.opacity = '0';
-                    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
-                }, duration);
+                setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300); }, duration);
             },
             success(msg, d) { this.show(msg, 'success', d); },
             error(msg, d) { this.show(msg, 'error', d); },
@@ -269,28 +214,16 @@
 
         // ========== 7. SECRET STORAGE (AES‑GCM) ==========
         secretStorage: {
-            _prefix: 'gs_sec_v2_',
-
-            // Стабильный идентификатор браузера
             _getFingerprint() {
                 const nav = window.navigator, screen = window.screen;
                 const str = [nav.userAgent, nav.language, nav.hardwareConcurrency || 0,
                              screen.width, screen.height, screen.colorDepth,
                              new Date().getTimezoneOffset()].join('|');
-                // Используем синхронный хеш (SHA‑256), если доступен, иначе простой хеш
-                return this._hashSync(str);
-            },
-
-            // Синхронный SHA‑256 через SubtleCrypto в синхронном режиме (обёртка)
-            _hashSync(str) {
-                // Поскольку SubtleCrypto асинхронный, используем простой DJB2 как fallback,
-                // чтобы не зависеть от асинхронности на этапе получения fingerprint.
                 let h = 5381;
                 for (let i = 0; i < str.length; i++) h = (h * 33) ^ str.charCodeAt(i);
                 return (h >>> 0).toString(16);
             },
 
-            // Асинхронное получение ключа на основе fingerprint
             async _getKey() {
                 const fp = this._getFingerprint();
                 const enc = new TextEncoder();
@@ -301,11 +234,11 @@
                     false,
                     ['deriveBits', 'deriveKey']
                 );
-                const salt = enc.encode('GradusSalt2025!X#');
+                const saltEnc = enc.encode(_salt);
                 return crypto.subtle.deriveKey(
                     {
                         name: 'PBKDF2',
-                        salt: salt,
+                        salt: saltEnc,
                         iterations: 100000,
                         hash: 'SHA-256'
                     },
@@ -316,7 +249,6 @@
                 );
             },
 
-            // Шифрование (AES‑GCM)
             async _encrypt(plaintext, key) {
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const enc = new TextEncoder();
@@ -332,7 +264,6 @@
                 return btoa(String.fromCharCode(...combined));
             },
 
-            // Расшифрование (AES‑GCM)
             async _decrypt(cipherB64, key) {
                 const combined = new Uint8Array(
                     atob(cipherB64).split('').map(c => c.charCodeAt(0))
@@ -347,33 +278,33 @@
                 return new TextDecoder().decode(decrypted);
             },
 
-            // Публичные методы
             async set(name, value) {
                 try {
                     const key = await this._getKey();
                     const encrypted = await this._encrypt(value, key);
-                    localStorage.setItem(this._prefix + name, encrypted);
+                    localStorage.setItem(_prefix + name, encrypted);
                     return true;
-                } catch (e) {
-                    GradusWeb._log('error', 'SecretStorage set: ' + e);
-                    return false;
-                }
+                } catch (e) { return false; }
             },
 
             async get(name) {
                 try {
-                    const encrypted = localStorage.getItem(this._prefix + name);
+                    const encrypted = localStorage.getItem(_prefix + name);
                     if (!encrypted) return null;
                     const key = await this._getKey();
                     return await this._decrypt(encrypted, key);
-                } catch (e) {
-                    GradusWeb._log('error', 'SecretStorage get: ' + e);
-                    return null;
-                }
+                } catch (e) { return null; }
             },
 
             async remove(name) {
-                localStorage.removeItem(this._prefix + name);
+                localStorage.removeItem(_prefix + name);
+            },
+
+            async clear() {
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith(_prefix))
+                    .forEach(k => localStorage.removeItem(k));
+                return true;
             }
         },
 
@@ -382,24 +313,35 @@
             _interval: null,
             _onDetected: null,
 
-            enableDevToolsProtection(onDetectedCallback) {
+            enableDevToolsProtection(onDetectedCallback, options = {}) {
+                const { removeScripts = true, skipMobile = true } = options;
                 this._onDetected = onDetectedCallback;
 
-                // Метод 1: зацикленный debugger
-                const debuggerLoop = () => {
-                    const start = performance.now();
-                    debugger;
-                    if (performance.now() - start > 100) {
-                        this._trigger('debugger');
+                if (skipMobile && /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent)) {
+                    console.log('[SECURITY] Мобильное устройство, защита отключена');
+                    return;
+                }
+
+                const trigger = () => {
+                    if (this._onDetected) this._onDetected();
+                    if (removeScripts) {
+                        const scripts = document.querySelectorAll('script');
+                        scripts.forEach(s => s.parentNode.removeChild(s));
+                        console.clear();
                     }
                 };
 
-                // Метод 2: постоянная очистка консоли и проверка времени выполнения
+                const debuggerLoop = () => {
+                    const start = performance.now();
+                    debugger;
+                    if (performance.now() - start > 100) trigger();
+                };
+
                 const consoleCheck = () => {
                     const before = Date.now();
                     console.clear();
-                    console.log('%c ', 'font-size:0;'); // невидимая запись
-                    if (Date.now() - before > 5) this._trigger('console');
+                    console.log('%c ', 'font-size:0;');
+                    if (Date.now() - before > 5) trigger();
                 };
 
                 this._interval = setInterval(() => {
@@ -407,32 +349,16 @@
                     consoleCheck();
                 }, 200);
 
-                // Блокировка горячих клавиш
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'F12' ||
                         (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) ||
                         (e.ctrlKey && e.key === 'U')) {
                         e.preventDefault();
-                        return false;
                     }
                 });
 
-                // Блокировка правого клика
                 document.addEventListener('contextmenu', e => e.preventDefault());
-
-                // Защита от встраивания в iframe
-                if (window.self !== window.top) {
-                    this._trigger('iframe');
-                }
-
-                // Подозрительный User-Agent (мобильный с большим экраном)
-                if (/Android.*Mobile/.test(navigator.userAgent) && window.outerWidth > 500) {
-                    this._trigger('ua');
-                }
-            },
-
-            _trigger(method) {
-                if (this._onDetected) this._onDetected();
+                if (window.self !== window.top) trigger();
             },
 
             disableDevToolsProtection() {
@@ -444,21 +370,103 @@
                 return String(str).replace(/[&<>"'\/]/g, ch => map[ch]);
             },
 
-            sanitizeScript(input) {
-                return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+            sanitizeScript(input) { return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''); }
+        },
+
+        // ========== 9. ВСТРОЕННЫЙ АНТИЧИТ (с onHack) ==========
+        antiCheat: {
+            createInstance(onHackCallback = null) {
+                return new GradusAntiCheatInstance(onHackCallback);
             }
         },
 
-        // ========== ИНИЦИАЛИЗАЦИЯ ==========
         init() {
             this._log('info', 'Gradus Web v' + this.version + ' загружен');
         }
     };
 
-    window.GradusWeb = GradusWeb;
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => GradusWeb.init());
-    } else {
-        GradusWeb.init();
+    // ========== КЛАСС АНТИЧИТА ==========
+    class GradusAntiCheatInstance {
+        constructor(onHackCallback = null) {
+            console.log("[GRADUS-AC] Анти-чит создан, документация на официальном сайте");
+            this.monitoring = false;
+            this.variables = {};
+            this._onHack = onHackCallback;
+
+            this._randInt = Math.floor(10000 + Math.random() * 90000);
+            this._randFloat = Math.round((100000 + Math.random() * 900000)) / 10;
+            const words = ["cocoon", "melon", "apple", "orange", "banana", "pineapple", "grape", "juice"];
+            this._randStr = words[Math.floor(Math.random() * words.length)];
+        }
+
+        onHack(callback) {
+            this._onHack = callback;
+        }
+
+        _sysInt(name, value) { this.variables[name] = { type: "int", value: value + this._randInt }; }
+        _sysStr(name, value) { this.variables[name] = { type: "str", value: value + this._randStr }; }
+        _sysBool(name, value) { this.variables[name] = { type: "bool", value: !value }; }
+        _sysFloat(name, value) { this.variables[name] = { type: "float", value: value + this._randFloat }; }
+        _sysDict(name, value) { this.variables[name] = { type: "dict", value: value }; }
+        _sysList(name, value) { this.variables[name] = { type: "list", value: value }; }
+        _sysOther(name) {
+            console.log(`[GRADUS-AC] Неподдерживаемый тип у "${name}", поддерживаются: int, str, bool, float, dict, list`);
+            return false;
+        }
+
+        startMonitoring() { this.monitoring = true; console.log("[GRADUS-AC] Античит включён!"); return true; }
+        stopMonitoring() { this.monitoring = false; console.log("[GRADUS-AC] Античит выключен!"); return true; }
+
+        addVariable(name = "VARIABLE", value) {
+            if (name === "VARIABLE") name = "VARIABLE" + Math.floor(10000 + Math.random() * 90000);
+            const t = typeof value;
+            if (t === "number") {
+                if (Number.isInteger(value)) this._sysInt(name, value);
+                else this._sysFloat(name, value);
+            } else if (t === "string") {
+                this._sysStr(name, value);
+            } else if (t === "boolean") {
+                this._sysBool(name, value);
+            } else if (value instanceof Map || (value && typeof value === "object" && value.constructor === Object)) {
+                this._sysDict(name, value);
+            } else if (Array.isArray(value)) {
+                this._sysList(name, value);
+            } else {
+                this._sysOther(name);
+                throw new Error(`Неподдерживаемый тип переменной '${name}'`);
+            }
+            return name;
+        }
+
+        getVariable(name) {
+            const v = this.variables[name];
+            if (!v) return null;
+            switch (v.type) {
+                case "int": return v.value - this._randInt;
+                case "str": return v.value.replace(this._randStr, "");
+                case "bool": return !v.value;
+                case "float": return v.value - this._randFloat;
+                case "dict": case "list": return v.value;
+                default: return null;
+            }
+        }
+
+        isHacked(name, value) {
+            if (!this.monitoring) return false;
+            const stored = this.getVariable(name);
+            if (stored === null) {
+                if (this._onHack) this._onHack(name, value, 'variable_missing');
+                return true;
+            }
+            if (stored !== value) {
+                if (this._onHack) this._onHack(name, value, 'value_mismatch');
+                return true;
+            }
+            return false;
+        }
     }
+
+    window.GradusWeb = GradusWeb;
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => GradusWeb.init());
+    else GradusWeb.init();
 })(window);
