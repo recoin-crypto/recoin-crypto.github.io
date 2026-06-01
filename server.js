@@ -1,6 +1,6 @@
 /**
  * Gradus Static.JS — Server
- * GET, POST, PUT + Firebase REST с поддержкой генерации ключей (push).
+ * Улучшенная безопасность: PUT для точных путей, POST для генерации ключей, обработка ошибок.
  */
 const GradusServer = {
     async get(url) {
@@ -48,12 +48,14 @@ const GradusServer = {
         return await this.get(path);
     },
 
+    // Полная замена данных по точному пути (используется для пользователей)
     async firebaseSet(path, data) {
         const url = path.endsWith('.json') ? path : path + '.json';
         const body = typeof data === 'string' ? data : JSON.stringify(data);
         return await this.put(url, body);
     },
 
+    // Добавление нового элемента со случайным ключом (используется для запросов)
     async firebasePush(path, data) {
         const url = path.endsWith('.json') ? path : path + '.json';
         const body = typeof data === 'string' ? data : JSON.stringify(data);
