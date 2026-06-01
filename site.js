@@ -1,6 +1,6 @@
-// Cosmo Casino – полный backend (все функции, исправленное колесо, мгновенный взрыв ракеты при подкрутке)
+// Cosmo Casino – полный backend (Gradus Web 2.3, античит, подкрутка)
 const siteConfig = { debug: false, dbFile: '' };
-const RIG_PROBABILITY = 0.33;
+const RIG_PROBABILITY = 0.33; // 33% подкрутка
 
 let currentUser = null;
 let FIREBASE_URL = '';
@@ -11,6 +11,7 @@ let selectedDiceValue = null;
 let selectedRacer = null;
 let autoSpinTimer = null;
 let autoSpinCount = 0;
+let antiCheatInstance = null; // экземпляр античита
 
 // ================== ИНИЦИАЛИЗАЦИЯ ==================
 async function initSite() {
@@ -18,20 +19,14 @@ async function initSite() {
         '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155'
     );
 
-    // В initSite() вместо простого вызова enableDevToolsProtection напишите так:
-
-    // Проверка на мобильное устройство (очень грубая, но достаточная)
-    const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
-    if (!isMobile) {
-        GradusWeb.security.enableDevToolsProtection(() => {
-            alert('Обнаружены инструменты разработчика! Данные удалены.');
-            GradusWeb.cache.clear();
-            location.reload();
-        });
-    } else {
-        // На мобильных устройствах защиту от F12 не включаем
-        console.log('[SITE] Мобильное устройство, защита от DevTools отключена');
-    }
+    // Инициализация античита (демонстрация)
+    antiCheatInstance = GradusWeb.antiCheat.createInstance((name, val, reason) => {
+        console.warn('[AC] Обнаружен взлом переменной', name, reason);
+        GradusWeb.notify.error('Обнаружена попытка взлома!');
+    });
+    antiCheatInstance.startMonitoring();
+    // Пример защищённой переменной (не используется, просто демо)
+    const demoVar = antiCheatInstance.addVariable('demo_health', 100);
 
     const saved = GradusWeb.cache.get('currentUser');
     if (saved) {
@@ -49,9 +44,7 @@ async function initSite() {
             } else {
                 GradusWeb.cache.remove('currentUser');
             }
-        } catch (e) {
-            console.warn('Не удалось проверить сессию', e);
-        }
+        } catch (e) { console.warn('Не удалось проверить сессию', e); }
     }
     updateUI();
     setupNavigation();
@@ -70,7 +63,6 @@ function setupNavigation() {
             if (tab === 'profile') renderCaptchas();
         });
     });
-
     document.querySelectorAll('.game-card').forEach(card => {
         card.addEventListener('click', () => showGamePanel(card.dataset.game));
     });
@@ -138,15 +130,12 @@ function showGamePanel(game) {
     }
     panel.innerHTML = html;
 
-    if (game === 'rocket') {
-        document.getElementById('startRocket').onclick = playRocket;
-    } else if (game === 'slots') {
+    if (game === 'rocket') document.getElementById('startRocket').onclick = playRocket;
+    else if (game === 'slots') {
         document.getElementById('spinSlots').onclick = spinSlots;
         document.getElementById('startAutoSpin').onclick = startAutoSpin;
         document.getElementById('stopAutoSpin').onclick = stopAutoSpin;
-    } else if (game === 'wheel') {
-        document.getElementById('spinWheel').onclick = spinWheel;
-    }
+    } else if (game === 'wheel') document.getElementById('spinWheel').onclick = spinWheel;
 }
 
 // ================== ВЫБОР ДЛЯ КУБИКА И ГОНОК ==================
@@ -429,9 +418,7 @@ async function attachEmail() {
 }
 
 // ================== ИГРЫ С ПОДКРУТКОЙ ==================
-function isRigged() {
-    return Math.random() < RIG_PROBABILITY;
-}
+function isRigged() { return Math.random() < RIG_PROBABILITY; }
 
 // Ракета – мгновенный взрыв при подкрутке
 async function playRocket() {
@@ -440,30 +427,22 @@ async function playRocket() {
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
-
     const startBtn = document.getElementById('startRocket');
     const cashoutBtn = document.getElementById('cashoutRocket');
     const rocketImg = document.getElementById('rocketImg');
     const coeffSpan = document.getElementById('rocketCoeff');
     startBtn.disabled = true;
     cashoutBtn.disabled = false;
-
     const rigged = isRigged();
     if (rigged) {
-        // Мгновенный проигрыш
         cashoutBtn.disabled = true;
         rocketImg.textContent = '💥';
         rocketImg.style.bottom = '0px';
         GradusWeb.notify.error('Ракета взорвалась!');
         incrementGamesPlayed();
-        setTimeout(() => {
-            rocketImg.textContent = '🚀';
-            startBtn.disabled = false;
-        }, 500);
+        setTimeout(() => { rocketImg.textContent = '🚀'; startBtn.disabled = false; }, 500);
         return;
     }
-
-    // Честная игра
     let coeff = 1.0;
     const crashPoint = parseFloat((Math.random() * 10 + 1).toFixed(2));
     rocketImg.style.bottom = '0px';
@@ -483,7 +462,6 @@ async function playRocket() {
             incrementGamesPlayed();
         }
     }, 300);
-
     cashoutBtn.onclick = async () => {
         clearInterval(rocketTimer);
         const win = round(bet * coeff);
@@ -496,7 +474,7 @@ async function playRocket() {
     };
 }
 
-// Слоты – гарантированный проигрыш при rigged
+// Слоты с гарантированным проигрышем при rigged
 function generateRiggedGrid() {
     const symbols = ['🍒', '🍋', '🔔', '💎', '⭐', '🍇', '7️⃣'];
     const grid = [];
@@ -505,7 +483,6 @@ function generateRiggedGrid() {
         for (let j = 0; j < 5; j++) row.push(symbols[Math.floor(Math.random() * symbols.length)]);
         grid.push(row);
     }
-    // Разрушение троек
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 2; col++) {
             if (grid[row][col] === grid[row][col+1] && grid[row][col+1] === grid[row][col+2]) {
@@ -532,7 +509,6 @@ function generateRiggedGrid() {
         do { newSymbol = symbols[Math.floor(Math.random() * symbols.length)]; } while (newSymbol === grid[1][3]);
         grid[1][3] = newSymbol;
     }
-    // Убираем пять семёрок в строке
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 1; col++) {
             if (grid[row][col] === '7️⃣' && grid[row][col+1] === '7️⃣' && grid[row][col+2] === '7️⃣' && grid[row][col+3] === '7️⃣' && grid[row][col+4] === '7️⃣') {
@@ -555,8 +531,7 @@ function generateFairGrid() {
 }
 
 function countTriples(grid) {
-    let normalTriples = 0;
-    let sevenTriples = 0;
+    let normalTriples = 0, sevenTriples = 0;
     const isSeven = (s) => s === '7️⃣';
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col <= 2; col++) {
@@ -602,18 +577,12 @@ async function spinSlots(isAuto = false) {
         return;
     }
     await updateBalance(-bet);
-
     let grid;
-    if (isRigged()) {
-        grid = generateRiggedGrid();
-    } else {
-        grid = generateFairGrid();
-    }
-
+    if (isRigged()) grid = generateRiggedGrid();
+    else grid = generateFairGrid();
     document.getElementById('slotGrid').innerHTML = grid.map(row =>
         '<div class="slot-row">' + row.map(s => `<span>${s}</span>`).join('') + '</div>'
     ).join('');
-
     if (!isRigged() && hasFiveSevensInRow(grid)) {
         const win = round(bet * 50);
         await updateBalance(win);
@@ -621,16 +590,13 @@ async function spinSlots(isAuto = false) {
         incrementGamesPlayed();
         return;
     }
-
     const { normalTriples, sevenTriples } = countTriples(grid);
     let multiplier = 1.0 + normalTriples * 1.0 + sevenTriples * 15.0;
     if (multiplier > 1.0) {
         const win = round(bet * multiplier);
         await updateBalance(win);
         GradusWeb.notify.success(`Выигрыш: ${win.toFixed(2)} ₽ (x${multiplier.toFixed(1)})`);
-    } else {
-        GradusWeb.notify.info('Попробуйте ещё раз');
-    }
+    } else GradusWeb.notify.info('Попробуйте ещё раз');
     incrementGamesPlayed();
 }
 
@@ -667,90 +633,58 @@ function rollDice() {
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (!currentUser || currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     updateBalance(-bet);
-
     let dice;
     if (isRigged()) {
-        if (selectedDiceType === 'number') {
-            dice = selectedDiceValue === 1 ? 6 : selectedDiceValue - 1;
-        } else if (selectedDiceType === 'low') {
-            dice = 4 + Math.floor(Math.random() * 3);
-        } else {
-            dice = 1 + Math.floor(Math.random() * 3);
-        }
-    } else {
-        dice = Math.floor(Math.random() * 6) + 1;
-    }
-
+        if (selectedDiceType === 'number') dice = selectedDiceValue === 1 ? 6 : selectedDiceValue - 1;
+        else if (selectedDiceType === 'low') dice = 4 + Math.floor(Math.random() * 3);
+        else dice = 1 + Math.floor(Math.random() * 3);
+    } else dice = Math.floor(Math.random() * 6) + 1;
     const faceEl = document.getElementById('diceFace');
     faceEl.style.transform = 'rotate(360deg)';
     setTimeout(() => {
         faceEl.style.transform = 'rotate(0deg)';
         faceEl.textContent = ['⚀','⚁','⚂','⚃','⚄','⚅'][dice-1];
     }, 500);
-
     let win = 0;
-    const type = selectedDiceType;
-    const value = selectedDiceValue;
-    if (type === 'number') {
-        if (dice === value) win = bet * 2.9;
-    } else if (type === 'low') {
-        if (dice <= 3) win = bet * 1.9;
-    } else if (type === 'high') {
-        if (dice >= 4) win = bet * 1.9;
-    }
+    const type = selectedDiceType, value = selectedDiceValue;
+    if (type === 'number') { if (dice === value) win = bet * 2.9; }
+    else if (type === 'low') { if (dice <= 3) win = bet * 1.9; }
+    else if (type === 'high') { if (dice >= 4) win = bet * 1.9; }
     setTimeout(async () => {
         if (win > 0) {
             await updateBalance(win);
             GradusWeb.notify.success(`Выпало ${dice}. Выигрыш: ${round(win).toFixed(2)} ₽ (x${(win/bet).toFixed(1)})`);
-        } else {
-            GradusWeb.notify.error(`Выпало ${dice}. Вы проиграли.`);
-        }
+        } else GradusWeb.notify.error(`Выпало ${dice}. Вы проиграли.`);
         incrementGamesPlayed();
-        selectedDiceType = null;
-        selectedDiceValue = null;
+        selectedDiceType = null; selectedDiceValue = null;
         document.getElementById('diceRollBtn').disabled = true;
     }, 600);
 }
 
-// Колесо – выигрыш определяется до вращения, угол соответствует сектору
+// Колесо
 async function spinWheel() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('wheelBet').value);
     if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
-
     const wheel = document.getElementById('wheelSpinner');
-    // Сбрасываем колесо в исходное положение (без анимации)
     wheel.style.transition = 'none';
     wheel.style.transform = 'rotate(0deg)';
-    // Форсируем перерисовку, чтобы браузер применил сброс до начала новой анимации
     wheel.offsetHeight;
-
     const win = isRigged() ? false : Math.random() < RIG_PROBABILITY;
     let finalAngle;
-    if (win) {
-        // Зелёный сектор: от 0 до 120 градусов
-        finalAngle = Math.floor(Math.random() * 120);
-    } else {
-        // Красный сектор: от 120 до 360 градусов
-        finalAngle = 120 + Math.floor(Math.random() * 240);
-    }
-
-    const fullRotations = (Math.floor(Math.random() * 4) + 2) * 360;
-    const totalRotation = fullRotations + finalAngle;
-
+    if (win) finalAngle = Math.floor(Math.random() * 120);
+    else finalAngle = 120 + Math.floor(Math.random() * 240);
+    const totalRotation = (Math.floor(Math.random() * 4) + 2) * 360 + finalAngle;
     wheel.style.transition = 'transform 3s ease-out';
     wheel.style.transform = `rotate(${totalRotation}deg)`;
-
     setTimeout(async () => {
         if (win) {
-            const winAmount = round(bet * 2.7);   // новый коэффициент 2.7
+            const winAmount = round(bet * 2.7);
             await updateBalance(winAmount);
             GradusWeb.notify.success(`Поздравляем! Выигрыш: ${winAmount.toFixed(2)} ₽ (x2.7)`);
-        } else {
-            GradusWeb.notify.error('Не повезло. Попробуйте ещё раз.');
-        }
+        } else GradusWeb.notify.error('Не повезло. Попробуйте ещё раз.');
         incrementGamesPlayed();
     }, 3100);
 }
@@ -764,31 +698,18 @@ function startRace() {
         if (!raw || raw === 'null') return;
         const data = JSON.parse(raw);
         const today = new Date().toISOString().split('T')[0];
-        if (data.lastDailyRace === today) {
-            GradusWeb.notify.warning('Вы уже участвовали сегодня');
-            return;
-        }
+        if (data.lastDailyRace === today) { GradusWeb.notify.warning('Вы уже участвовали сегодня'); return; }
         await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyRace.json`, JSON.stringify(today));
-
         let winner;
         if (isRigged()) {
-            do {
-                winner = Math.floor(Math.random() * 4) + 1;
-            } while (winner === parseInt(selectedRacer));
-        } else {
-            winner = Math.floor(Math.random() * 4) + 1;
-        }
-
+            do { winner = Math.floor(Math.random() * 4) + 1; } while (winner === parseInt(selectedRacer));
+        } else winner = Math.floor(Math.random() * 4) + 1;
         const track = document.getElementById('raceTrack');
         track.innerHTML = '';
         const racers = ['🚗', '🚙', '🏎️', '🚕'];
         for (let i = 0; i < 4; i++) {
-            const lane = document.createElement('div');
-            lane.className = 'race-lane';
-            const car = document.createElement('span');
-            car.className = 'race-car';
-            car.textContent = racers[i];
-            car.id = 'car' + (i+1);
+            const lane = document.createElement('div'); lane.className = 'race-lane';
+            const car = document.createElement('span'); car.className = 'race-car'; car.textContent = racers[i]; car.id = 'car' + (i+1);
             lane.appendChild(car);
             lane.innerHTML += '<div class="finish-line"></div>';
             track.appendChild(lane);
@@ -806,9 +727,7 @@ function startRace() {
             if (parseInt(selectedRacer) === winner) {
                 await updateBalance(10);
                 GradusWeb.notify.success('Ваш гонщик победил! +10 ₽');
-            } else {
-                GradusWeb.notify.info('Ваш гонщик проиграл. Попробуйте завтра.');
-            }
+            } else GradusWeb.notify.info('Ваш гонщик проиграл. Попробуйте завтра.');
             updateUI();
         }, duration + 100);
         selectedRacer = null;
