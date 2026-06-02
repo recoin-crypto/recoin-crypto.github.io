@@ -1,6 +1,7 @@
+"use strict";
 // Cosmo Casino – полный backend (Gradus Web 2.3, античит, подкрутка)
 const siteConfig = { debug: false, dbFile: '' };
-const RIG_PROBABILITY = 0.4; // 40% шанс принудительного проигрыша
+const RIG_PROBABILITY = 0.4;
 
 let currentUser = null;
 let FIREBASE_URL = '';
@@ -9,12 +10,17 @@ let rocketTimer = null;
 let selectedDiceType = null;
 let selectedDiceValue = null;
 let selectedRacer = null;
+let selectedCyberTeam = null;
 let autoSpinTimer = null;
 let autoSpinCount = 0;
 let antiCheatInstance = null;
+let hackDetected = false;   // глобальный флаг блокировки серверных операций
 
-// Переменные игры Мины
-let minesGame = null; // { bet, minesCount, grid, revealed, status: 'playing'|'won'|'lost', blowIndex, rigged, riggedApplied, maxMultiplier }
+let minesGame = null;
+let lotterySelected = new Set();
+let cybersportActive = false;
+let cybersportTimer = null;
+let cyberTeams = { left: [], right: [] };
 
 // ================== ИНИЦИАЛИЗАЦИЯ ==================
 async function initSite() {
@@ -25,6 +31,7 @@ async function initSite() {
     antiCheatInstance = GradusWeb.antiCheat.createInstance((name, val, reason) => {
         console.warn('[AC] Обнаружен взлом переменной', name, reason);
         GradusWeb.notify.error('Обнаружена попытка взлома!');
+        hackDetected = true;   // любые попытки вмешательства – всё блокируется
     });
     antiCheatInstance.startMonitoring();
     const demoVar = antiCheatInstance.addVariable('demo_health', 100);
@@ -50,9 +57,17 @@ async function initSite() {
     updateUI();
     setupNavigation();
     renderCaptchas();
+
+    // При debug:true отключаем защиту DevTools
+    if (siteConfig.debug && window.GradusWeb && window.GradusWeb.security) {
+        if (window.GradusWeb.security.disableDevToolsProtection) {
+            window.GradusWeb.security.disableDevToolsProtection();
+            console.log('[CORE] DevTools защита отключена (debug: true)');
+        }
+    }
 }
 
-// ================== НАВИГАЦИЯ ==================
+// ================== НАВИГАЦИЯ (делегирование) ==================
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -60,30 +75,52 @@ function setupNavigation() {
             btn.classList.add('active');
             const tab = btn.dataset.tab;
             document.getElementById('playTab').style.display = tab === 'play' ? 'block' : 'none';
+            document.getElementById('freeTab').style.display = tab === 'free' ? 'block' : 'none';
             document.getElementById('profileTab').style.display = tab === 'profile' ? 'block' : 'none';
             if (tab === 'profile') renderCaptchas();
         });
     });
-    document.querySelectorAll('.game-card').forEach(card => {
-        card.addEventListener('click', () => showGamePanel(card.dataset.game));
-    });
+
+    const gamesGrid = document.getElementById('gamesGrid');
+    const freeTab = document.getElementById('freeTab');
+    if (gamesGrid) {
+        gamesGrid.addEventListener('click', (e) => {
+            const card = e.target.closest('.game-card');
+            if (card) {
+                const game = card.dataset.game;
+                if (game) showGamePanel(game);
+            }
+        });
+    }
+    if (freeTab) {
+        freeTab.addEventListener('click', (e) => {
+            const card = e.target.closest('.game-card');
+            if (card) {
+                const game = card.dataset.game;
+                if (game) showFreeGamePanel(game);
+            }
+        });
+    }
 }
 
+// ================== ПЛАТНЫЕ ИГРЫ ==================
 function showGamePanel(game) {
     const panel = document.getElementById('gamePanel');
+    const freePanel = document.getElementById('freeGamePanel');
+    if (freePanel) freePanel.style.display = 'none';
     panel.style.display = 'block';
     let html = '';
     switch (game) {
         case 'rocket':
             html = `<h2>🚀 Ракета</h2>
-                <p>Ставка: <input type="number" id="rocketBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+                <p>Ставка: <input type="number" id="rocketBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <button id="startRocket">Запустить</button>
                 <button id="cashoutRocket" disabled>Забрать (x<span id="rocketCoeff">1.00</span>)</button>
                 <div class="rocket-game"><div class="rocket-img" id="rocketImg">🚀</div></div>`;
             break;
         case 'slots':
             html = `<h2>🎰 Слоты (5x3)</h2>
-                <p>Ставка: <input type="number" id="slotBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+                <p>Ставка: <input type="number" id="slotBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <button id="spinSlots">Крутить</button>
                 <div class="auto-spin-controls">
                     <input type="number" id="autoSpinQty" min="1" value="10" placeholder="Кол-во">
@@ -100,43 +137,32 @@ function showGamePanel(game) {
             break;
         case 'dice':
             html = `<h2>🎲 Кубик</h2>
-                <p>Ставка: <input type="number" id="diceBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+                <p>Ставка: <input type="number" id="diceBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <div style="display:flex; gap:5px; flex-wrap:wrap;">
-                    <button onclick="selectDice('number',1)">1 (x4.9)</button>
-                    <button onclick="selectDice('number',2)">2 (x4.9)</button>
-                    <button onclick="selectDice('number',3)">3 (x4.9)</button>
-                    <button onclick="selectDice('number',4)">4 (x4.9)</button>
-                    <button onclick="selectDice('number',5)">5 (x4.9)</button>
-                    <button onclick="selectDice('number',6)">6 (x4.9)</button>
-                    <button onclick="selectDice('low')">1-3 (x1.9)</button>
-                    <button onclick="selectDice('high')">4-6 (x1.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="1">1 (x4.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="2">2 (x4.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="3">3 (x4.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="4">4 (x4.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="5">5 (x4.9)</button>
+                    <button class="dice-btn" data-type="number" data-value="6">6 (x4.9)</button>
+                    <button class="dice-btn" data-type="low">1-3 (x1.9)</button>
+                    <button class="dice-btn" data-type="high">4-6 (x1.9)</button>
                 </div>
-                <button id="diceRollBtn" onclick="rollDice()" disabled>🎲 Бросить кубик</button>
+                <button id="diceRollBtn" disabled>🎲 Бросить кубик</button>
                 <div class="dice" id="diceFace">⚀</div>`;
             break;
         case 'wheel':
             html = `<h2>🎡 Колесо фортуны</h2>
-                <p>Ставка: <input type="number" id="wheelBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+                <p>Ставка: <input type="number" id="wheelBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <button id="spinWheel">Крутить (x2.7 при выигрыше)</button>
                 <div class="wheel-wrapper">
                     <div class="wheel-arrow"></div>
                     <div class="wheel-container" id="wheelSpinner"></div>
                 </div>`;
             break;
-        case 'race':
-            html = `<h2>🏎️ Ежедневные гонки (бесплатно)</h2>
-                <p>Выберите гонщика:</p>
-                <button onclick="selectRacer(1)">🚗 Красный</button>
-                <button onclick="selectRacer(2)">🚙 Синий</button>
-                <button onclick="selectRacer(3)">🏎️ Зеленый</button>
-                <button onclick="selectRacer(4)">🚕 Желтый</button>
-                <button id="raceStartBtn" onclick="startRace()" disabled>🏁 Начать гонку</button>
-                <div class="race-track" id="raceTrack"></div>
-                <div id="raceResult"></div>`;
-            break;
         case 'mines':
             html = `<h2>💣 Мины (5×5)</h2>
-                <p>Ставка: <input type="number" id="minesBet" min="7.5" step="0.1" placeholder="Сумма"></p>
+                <p>Ставка: <input type="number" id="minesBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <div class="mines-controls">
                     <label>Мины: <span id="minesCountLabel">5</span></label>
                     <input type="range" id="minesSlider" min="1" max="24" value="5" step="1"
@@ -152,38 +178,143 @@ function showGamePanel(game) {
                     <button id="cashoutMinesBtn">Забрать выигрыш</button>
                 </div>`;
             break;
+        case 'plinko':
+            html = `<h2>🔴 Плинко</h2>
+                <p>Ставка: <input type="number" id="plinkoBet" min="5" step="0.1" placeholder="Сумма"></p>
+                <button id="dropBallBtn">Бросить шарик</button>
+                <div id="plinkoGameArea" style="max-width: 500px; margin: 0 auto;">
+                    <div class="plinko-board" id="plinkoBoard" style="position: relative; width: 100%; height: 380px; background: #0a0a2e; border-radius: 12px; padding: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); overflow: hidden;"></div>
+                    <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
+                        <div class="plinko-slot" style="width:60%; background:#f44336;">0x</div>
+                        <div class="plinko-slot" style="width:30%; background:#ff9800;">2x</div>
+                        <div class="plinko-slot" style="width:10%; background:#4caf50;">5x</div>
+                    </div>
+                </div>`;
+            break;
+        case 'lottery':
+            html = `<h2>🎯 Лотерея (выберите 5 чисел из 21–80)</h2>
+                <p>Ставка: <input type="number" id="lotteryBet" min="5" step="0.1" placeholder="Сумма"></p>
+                <div class="lottery-grid" id="lotteryGrid"></div>
+                <p>Выбрано: <span id="lotteryCount">0</span>/5</p>
+                <button id="playLotteryBtn" disabled>Играть</button>
+                <div id="lotteryResult" style="margin-top:15px;"></div>`;
+            break;
     }
     panel.innerHTML = html;
 
-    if (game === 'rocket') document.getElementById('startRocket').onclick = playRocket;
-    else if (game === 'slots') {
+    if (game === 'rocket') {
+        document.getElementById('startRocket').onclick = playRocket;
+    } else if (game === 'slots') {
         document.getElementById('spinSlots').onclick = spinSlots;
         document.getElementById('startAutoSpin').onclick = startAutoSpin;
         document.getElementById('stopAutoSpin').onclick = stopAutoSpin;
-    } else if (game === 'wheel') document.getElementById('spinWheel').onclick = spinWheel;
-    else if (game === 'mines') {
+    } else if (game === 'dice') {
+        document.querySelectorAll('.dice-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                selectDice(this.dataset.type, this.dataset.value ? parseInt(this.dataset.value) : null);
+            });
+        });
+        document.getElementById('diceRollBtn').onclick = rollDice;
+    } else if (game === 'wheel') {
+        document.getElementById('spinWheel').onclick = spinWheel;
+    } else if (game === 'mines') {
         document.getElementById('startMinesGame').onclick = startMinesGame;
         document.getElementById('cashoutMinesBtn').onclick = cashoutMines;
         updateMinesCoefficients();
+    } else if (game === 'plinko') {
+        document.getElementById('dropBallBtn').onclick = dropPlinkoBall;
+        buildPlinkoBoard();
+    } else if (game === 'lottery') {
+        buildLotteryGrid();
+        document.getElementById('playLotteryBtn').onclick = playLottery;
     }
 }
 
-// ================== ВЫБОР ДЛЯ КУБИКА И ГОНОК ==================
+// ================== БЕСПЛАТНЫЕ ИГРЫ ==================
+function showFreeGamePanel(game) {
+    const panel = document.getElementById('freeGamePanel');
+    const paidPanel = document.getElementById('gamePanel');
+    if (paidPanel) paidPanel.style.display = 'none';
+    panel.style.display = 'block';
+    let html = '';
+    switch (game) {
+        case 'race':
+            html = `<h2>🏎️ Ежедневные гонки (бесплатно)</h2>
+                <p>Выберите гонщика:</p>
+                <button class="racer-btn" data-racer="1">🚗 Красный</button>
+                <button class="racer-btn" data-racer="2">🚙 Синий</button>
+                <button class="racer-btn" data-racer="3">🏎️ Зеленый</button>
+                <button class="racer-btn" data-racer="4">🚕 Желтый</button>
+                <button id="raceStartBtn" disabled>🏁 Начать гонку</button>
+                <div class="race-track" id="raceTrack"></div>
+                <div id="raceResult"></div>`;
+            break;
+        case 'cybersport':
+            html = `<h2>🔫 Киберспорт (ежедневно, бесплатно)</h2>
+                <p>Выберите команду:</p>
+                <button class="cyber-btn" data-team="1">🟦 Альфа (слева)</button>
+                <button class="cyber-btn" data-team="2">🟥 Браво (справа)</button>
+                <button id="startCyberBtn" disabled>Начать бой</button>
+                <div id="cyberGameArea" style="display:none;">
+                    <div class="cyber-field" id="cyberField"></div>
+                    <div id="cyberLog" style="margin-top:15px; font-size:0.9rem; color:#ccc;"></div>
+                </div>`;
+            break;
+    }
+    panel.innerHTML = html;
+
+    if (game === 'race') {
+        document.querySelectorAll('.racer-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                selectRacer(parseInt(this.dataset.racer));
+            });
+        });
+        document.getElementById('raceStartBtn').onclick = startRace;
+    } else if (game === 'cybersport') {
+        document.querySelectorAll('.cyber-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                selectCyberTeam(parseInt(this.dataset.team));
+            });
+        });
+        document.getElementById('startCyberBtn').onclick = startCyberMatch;
+    }
+}
+
+// ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ВЫБОРА ==================
 function selectDice(type, value) {
     selectedDiceType = type;
     selectedDiceValue = value;
     document.getElementById('diceRollBtn').disabled = false;
-    document.querySelectorAll('#gamePanel button[onclick^="selectDice"]').forEach(b => b.style.background = '');
-    event.target.style.background = '#ffd700';
-    event.target.style.color = '#000';
+    document.querySelectorAll('.dice-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    let selector = `.dice-btn[data-type="${type}"]`;
+    if (value !== null && value !== undefined) selector += `[data-value="${value}"]`;
+    const activeBtn = document.querySelector(selector);
+    if (activeBtn) {
+        activeBtn.style.background = '#ffd700';
+        activeBtn.style.color = '#000';
+    }
 }
 
 function selectRacer(num) {
     selectedRacer = num;
     document.getElementById('raceStartBtn').disabled = false;
-    document.querySelectorAll('#gamePanel button[onclick^="selectRacer"]').forEach(b => b.style.background = '');
-    event.target.style.background = '#ffd700';
-    event.target.style.color = '#000';
+    document.querySelectorAll('.racer-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    const activeBtn = document.querySelector(`.racer-btn[data-racer="${num}"]`);
+    if (activeBtn) {
+        activeBtn.style.background = '#ffd700';
+        activeBtn.style.color = '#000';
+    }
+}
+
+function selectCyberTeam(num) {
+    selectedCyberTeam = num;
+    document.getElementById('startCyberBtn').disabled = false;
+    document.querySelectorAll('.cyber-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    const activeBtn = document.querySelector(`.cyber-btn[data-team="${num}"]`);
+    if (activeBtn) {
+        activeBtn.style.background = '#ffd700';
+        activeBtn.style.color = '#000';
+    }
 }
 
 // ================== КАПЧА ==================
@@ -255,6 +386,7 @@ async function submitLogin() {
                     totalDeposited: data.totalDeposited || 0,
                     totalWithdrawn: data.totalWithdrawn || 0,
                     lastDailyRace: data.lastDailyRace || '',
+                    lastDailyCyber: data.lastDailyCyber || '',
                     passwordHash: hashed
                 };
                 GradusWeb.cache.set('currentUser', currentUser);
@@ -298,7 +430,8 @@ async function submitReg() {
             gamesPlayed: 0,
             totalDeposited: 0,
             totalWithdrawn: 0,
-            lastDailyRace: ''
+            lastDailyRace: '',
+            lastDailyCyber: ''
         };
         await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}.json`, JSON.stringify(newUser));
         currentUser = {
@@ -309,6 +442,7 @@ async function submitReg() {
             totalDeposited: 0,
             totalWithdrawn: 0,
             lastDailyRace: '',
+            lastDailyCyber: '',
             passwordHash: hashed
         };
         GradusWeb.cache.set('currentUser', currentUser);
@@ -359,11 +493,11 @@ async function changePassword() {
     }
 }
 
-// ================== БАЛАНС И ПОЛЬЗОВАТЕЛЬ ==================
+// ================== БАЛАНС И ПОЛЬЗОВАТЕЛЬ (С ЗАЩИТОЙ) ==================
 function round(value) { return Math.round(value * 100) / 100; }
 
 async function refreshBalance() {
-    if (!currentUser) return;
+    if (!currentUser || hackDetected) return;
     const userRef = `CosmoCasino/user/${currentUser.username}`;
     try {
         const data = await GradusServer.firebaseGet(`${FIREBASE_URL}${userRef}.json`);
@@ -373,13 +507,18 @@ async function refreshBalance() {
             currentUser.gamesPlayed = parsed.gamesPlayed || 0;
             currentUser.totalDeposited = round(parsed.totalDeposited || 0);
             currentUser.totalWithdrawn = round(parsed.totalWithdrawn || 0);
+            currentUser.lastDailyRace = parsed.lastDailyRace || '';
+            currentUser.lastDailyCyber = parsed.lastDailyCyber || '';
             document.getElementById('balanceDisplay').textContent = currentUser.balance.toFixed(2) + ' ₽';
         }
     } catch (e) {}
 }
 
 async function updateBalance(amount) {
+    if (hackDetected) { console.warn('Взлом! Операция отменена.'); return; }
     if (!currentUser) return;
+    // Синхронизация перед записью, чтобы не перезатереть внешние пополнения
+    await refreshBalance();
     const userRef = `CosmoCasino/user/${currentUser.username}`;
     const newBalance = round(currentUser.balance + amount);
     try {
@@ -390,21 +529,27 @@ async function updateBalance(amount) {
 }
 
 async function incrementGamesPlayed() {
+    if (hackDetected) return;
     if (!currentUser) return;
+    await refreshBalance();
     currentUser.gamesPlayed++;
     const userRef = `CosmoCasino/user/${currentUser.username}`;
     await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/gamesPlayed.json`, currentUser.gamesPlayed);
 }
 
 async function updateTotalDeposited(amount) {
+    if (hackDetected) return;
     if (!currentUser) return;
+    await refreshBalance();
     currentUser.totalDeposited = round((currentUser.totalDeposited || 0) + amount);
     const userRef = `CosmoCasino/user/${currentUser.username}`;
     await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/totalDeposited.json`, currentUser.totalDeposited);
 }
 
 async function updateTotalWithdrawn(amount) {
+    if (hackDetected) return;
     if (!currentUser) return;
+    await refreshBalance();
     currentUser.totalWithdrawn = round((currentUser.totalWithdrawn || 0) + amount);
     const userRef = `CosmoCasino/user/${currentUser.username}`;
     await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/totalWithdrawn.json`, currentUser.totalWithdrawn);
@@ -412,6 +557,7 @@ async function updateTotalWithdrawn(amount) {
 
 // ================== ЗАПРОСЫ ==================
 async function requestDeposit() {
+    if (hackDetected) { GradusWeb.notify.error('Обнаружена попытка взлома'); return; }
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('captchaDeposit', 'depositCaptchaInput')) return;
     const amount = parseFloat(document.getElementById('depositAmount').value);
@@ -435,6 +581,7 @@ async function requestDeposit() {
 }
 
 async function requestWithdraw() {
+    if (hackDetected) { GradusWeb.notify.error('Обнаружена попытка взлома'); return; }
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('captchaWithdraw', 'withdrawCaptchaInput')) return;
     const amount = parseFloat(document.getElementById('withdrawAmount').value);
@@ -488,12 +635,12 @@ function shouldForceWin(bet) {
     return currentUser.gamesPlayed < 2 && bet < 70;
 }
 
-// ================== ИГРЫ ==================
+// ================== ПЛАТНЫЕ ИГРЫ (РЕАЛИЗАЦИЯ) ==================
 // Ракета
 async function playRocket() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('rocketBet').value);
-    if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
     const startBtn = document.getElementById('startRocket');
@@ -616,7 +763,7 @@ function countWins(grid) {
 async function spinSlots(isAuto = false) {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('slotBet').value);
-    if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
     if (currentUser.balance < bet) {
         if (isAuto) stopAutoSpin();
         GradusWeb.notify.error('Недостаточно средств');
@@ -670,7 +817,7 @@ function startAutoSpin() {
     document.getElementById('startAutoSpin').disabled = true;
     document.getElementById('stopAutoSpin').disabled = false;
     autoSpinTimer = setInterval(async () => {
-        if (autoSpinCount <= 0 || (currentUser && currentUser.balance < parseFloat(document.getElementById('slotBet').value || 7.5))) {
+        if (autoSpinCount <= 0 || (currentUser && currentUser.balance < parseFloat(document.getElementById('slotBet').value || 5))) {
             stopAutoSpin();
             return;
         }
@@ -692,7 +839,7 @@ function stopAutoSpin() {
 async function rollDice() {
     if (!selectedDiceType) return;
     const bet = parseFloat(document.getElementById('diceBet').value);
-    if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
     if (!currentUser || currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
 
@@ -735,10 +882,7 @@ async function rollDice() {
         await incrementGamesPlayed();
         selectedDiceType = null; selectedDiceValue = null;
         document.getElementById('diceRollBtn').disabled = true;
-        document.querySelectorAll('#gamePanel button[onclick^="selectDice"]').forEach(b => {
-            b.style.background = '';
-            b.style.color = '';
-        });
+        document.querySelectorAll('.dice-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
     }, 600);
 }
 
@@ -746,7 +890,7 @@ async function rollDice() {
 async function spinWheel() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const bet = parseFloat(document.getElementById('wheelBet').value);
-    if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
 
@@ -774,53 +918,7 @@ async function spinWheel() {
     }, 3100);
 }
 
-// Гонки
-function startRace() {
-    if (!selectedRacer) return;
-    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
-    const userRef = `CosmoCasino/user/${currentUser.username}`;
-    GradusServer.firebaseGet(`${FIREBASE_URL}${userRef}.json`).then(async (raw) => {
-        if (!raw || raw === 'null') return;
-        const data = JSON.parse(raw);
-        const today = new Date().toISOString().split('T')[0];
-        if (data.lastDailyRace === today) { GradusWeb.notify.warning('Вы уже участвовали сегодня'); return; }
-        await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyRace.json`, JSON.stringify(today));
-        let winner;
-        if (isRigged()) {
-            do { winner = Math.floor(Math.random() * 4) + 1; } while (winner === parseInt(selectedRacer));
-        } else winner = Math.floor(Math.random() * 4) + 1;
-        const track = document.getElementById('raceTrack');
-        track.innerHTML = '';
-        const racers = ['🚗', '🚙', '🏎️', '🚕'];
-        for (let i = 0; i < 4; i++) {
-            const lane = document.createElement('div'); lane.className = 'race-lane';
-            const car = document.createElement('span'); car.className = 'race-car'; car.textContent = racers[i]; car.id = 'car' + (i+1);
-            lane.appendChild(car);
-            lane.innerHTML += '<div class="finish-line"></div>';
-            track.appendChild(lane);
-        }
-        const speeds = [1,2,3,4].map(() => Math.random() * 2 + 0.5);
-        const maxSpeed = Math.max(...speeds);
-        const duration = 3000;
-        Object.keys(speeds).forEach(i => {
-            const car = document.getElementById('car' + (parseInt(i)+1));
-            const distance = 200 - (speeds[i]/maxSpeed * 200);
-            car.style.transition = `left ${duration}ms linear`;
-            car.style.left = distance + 'px';
-        });
-        setTimeout(async () => {
-            if (parseInt(selectedRacer) === winner) {
-                await updateBalance(10);
-                GradusWeb.notify.success('Ваш гонщик победил! +10 ₽');
-            } else GradusWeb.notify.info('Ваш гонщик проиграл. Попробуйте завтра.');
-            updateUI();
-        }, duration + 100);
-        selectedRacer = null;
-        document.getElementById('raceStartBtn').disabled = true;
-    }).catch(e => GradusWeb.notify.error('Ошибка соединения'));
-}
-
-// ================== ИГРА МИНЫ (ИСПРАВЛЕНО ФИНАЛЬНО) ==================
+// Мины
 function getMaxMultiplier(minesCount) {
     return round(3 + 22 * (minesCount - 1) / 23);
 }
@@ -842,15 +940,12 @@ function updateMinesCoefficients() {
 
 async function startMinesGame() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
-
-    // Если игра уже есть, просто сбрасываем и начинаем новую
     if (minesGame) {
         document.getElementById('minesGameArea').style.display = 'none';
         minesGame = null;
     }
-
     const bet = parseFloat(document.getElementById('minesBet').value);
-    if (!bet || bet < 7.5) { GradusWeb.notify.warning('Минимальная ставка 7.5 ₽'); return; }
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     const minesCount = parseInt(document.getElementById('minesSlider').value);
     if (minesCount < 1 || minesCount > 24) return;
@@ -880,7 +975,6 @@ async function startMinesGame() {
         maxMultiplier: getMaxMultiplier(minesCount)
     };
 
-    // Показываем игровую область
     document.getElementById('startMinesGame').disabled = true;
     document.getElementById('minesGameArea').style.display = 'block';
     document.getElementById('cashoutMinesBtn').style.display = 'inline-block';
@@ -909,7 +1003,6 @@ function renderMinesGrid() {
                 cell.addEventListener('click', () => handleMineClick(i));
             }
         } else {
-            // Игра завершена (won или lost) — показываем все клетки
             cell.classList.add('revealed');
             if (status === 'lost' && i === blowIndex) {
                 cell.textContent = '❌';
@@ -918,10 +1011,8 @@ function renderMinesGrid() {
                 cell.textContent = '💣';
                 cell.classList.add('mine');
             } else if (isRevealed) {
-                // Безопасная клетка, открытая игроком до завершения
                 cell.textContent = '✅';
             } else {
-                // Безопасная клетка, не открытая игроком
                 cell.textContent = '💎';
             }
         }
@@ -938,7 +1029,6 @@ async function handleMineClick(index) {
     if (!minesGame || minesGame.status !== 'playing') return;
     if (minesGame.revealed.has(index)) return;
 
-    // Подкрутка
     if (minesGame.rigged && !minesGame.riggedApplied && minesGame.revealed.size < 3 && minesGame.grid[index] === 0) {
         const clicksToApply = Math.floor(Math.random() * 3) + 1;
         if (minesGame.revealed.size + 1 === clicksToApply) {
@@ -958,10 +1048,8 @@ async function handleMineClick(index) {
     minesGame.revealed.add(index);
 
     if (minesGame.grid[index] === 1) {
-        // Взрыв
         minesGame.blowIndex = index;
         minesGame.status = 'lost';
-        // НЕ добавляем все индексы в revealed, чтобы сохранить информацию об открытых
         renderMinesGrid();
         await incrementGamesPlayed();
         GradusWeb.notify.error('Вы наткнулись на мину!');
@@ -971,12 +1059,10 @@ async function handleMineClick(index) {
         const totalSafe = 25 - minesGame.minesCount;
 
         if (safeOpened >= totalSafe) {
-            // Автоматический кэшаут
             const winAmount = round(minesGame.bet * minesGame.maxMultiplier);
             await updateBalance(winAmount);
             GradusWeb.notify.success(`Все безопасные открыты! Выигрыш: ${winAmount.toFixed(2)} ₽ (x${minesGame.maxMultiplier.toFixed(2)})`);
             minesGame.status = 'won';
-            // revealed остаётся только с открытыми клетками, не добавляем все
             renderMinesGrid();
             await incrementGamesPlayed();
             endMinesGame();
@@ -998,10 +1084,328 @@ async function cashoutMines() {
     GradusWeb.notify.success(`Выигрыш: ${winAmount.toFixed(2)} ₽ (x${mult.toFixed(2)})`);
 
     minesGame.status = 'won';
-    // revealed остаётся только с открытыми клетками
     renderMinesGrid();
     await incrementGamesPlayed();
     endMinesGame();
+}
+
+// Плинко (реалистичная доска с анимацией)
+function buildPlinkoBoard() {
+    const board = document.getElementById('plinkoBoard');
+    if (!board) return;
+    board.innerHTML = '';
+    const boardWidth = board.offsetWidth;
+    const boardHeight = board.offsetHeight || 380;
+    // 9 рядов колышков (3,4,5,6,7,8,9,8,7) для симметрии
+    const rowsPegs = [3,4,5,6,7,8,9,8,7];
+    const rowCount = rowsPegs.length;
+    const rowHeight = (boardHeight - 40) / (rowCount - 1); // отступ сверху и снизу
+
+    for (let r = 0; r < rowCount; r++) {
+        const pegsInRow = rowsPegs[r];
+        const rowDiv = document.createElement('div');
+        rowDiv.style.position = 'absolute';
+        rowDiv.style.width = '100%';
+        rowDiv.style.top = (r * rowHeight + 20) + 'px';
+        rowDiv.style.display = 'flex';
+        rowDiv.style.justifyContent = 'center';
+        rowDiv.style.gap = '10px';
+        // Чётные ряды смещены на полшага для шахматного порядка
+        if (r % 2 === 1) {
+            rowDiv.style.paddingLeft = (boardWidth / (pegsInRow + 1)) + 'px';
+        }
+        for (let c = 0; c < pegsInRow; c++) {
+            const peg = document.createElement('div');
+            peg.style.cssText = 'width:18px; height:18px; background: radial-gradient(circle at 30% 30%, #fff, #4f46e5); border-radius:50%; box-shadow: 0 0 5px rgba(255,255,255,0.5);';
+            rowDiv.appendChild(peg);
+        }
+        board.appendChild(rowDiv);
+    }
+}
+
+async function dropPlinkoBall() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    const bet = parseFloat(document.getElementById('plinkoBet').value);
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
+    if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
+    await updateBalance(-bet);
+
+    const btn = document.getElementById('dropBallBtn');
+    btn.disabled = true;
+
+    const board = document.getElementById('plinkoBoard');
+    const boardWidth = board.offsetWidth;
+    const boardHeight = board.offsetHeight;
+    const colWidth = boardWidth / 7; // 7 возможных финальных слотов
+
+    // Создаём шарик
+    const ball = document.createElement('div');
+    ball.style.cssText = 'position: absolute; width: 22px; height: 22px; background: radial-gradient(circle at 30% 30%, #ffd700, #b8860b); border-radius: 50%; box-shadow: 0 0 10px rgba(255,215,0,0.8); transition: left 0.15s ease-in, top 0.15s ease-in; z-index: 10;';
+    board.appendChild(ball);
+
+    // Начальная позиция (центр)
+    let position = 3; // индекс слота 0-6
+    ball.style.left = (position * colWidth + colWidth/2 - 11) + 'px';
+    ball.style.top = '0px';
+
+    const rowsPegs = [3,4,5,6,7,8,9,8,7];
+    const rowHeight = (boardHeight - 40) / (rowsPegs.length - 1);
+
+    for (let i = 1; i < rowsPegs.length; i++) {
+        const direction = Math.random() < 0.5 ? -1 : 1;
+        if (position > 0 && direction === -1) position--;
+        else if (position < 6 && direction === 1) position++;
+        // Перемещаем шарик
+        ball.style.left = (position * colWidth + colWidth/2 - 11) + 'px';
+        ball.style.top = (i * rowHeight + 20) + 'px';
+        await new Promise(resolve => setTimeout(resolve, 150));
+    }
+
+    // Результат
+    let multiplier = 0;
+    if (position >= 0 && position <= 3) multiplier = 0;
+    else if (position >= 4 && position <= 5) multiplier = 2;
+    else if (position === 6) multiplier = 5;
+
+    if (isRigged()) multiplier = 0;
+
+    ball.remove();
+
+    const winAmount = round(bet * multiplier);
+    if (winAmount > 0) {
+        await updateBalance(winAmount);
+        GradusWeb.notify.success(`Выигрыш: ${winAmount.toFixed(2)} ₽ (x${multiplier})`);
+    } else {
+        GradusWeb.notify.error('Шарик упал в 0x. Попробуйте снова.');
+    }
+    await incrementGamesPlayed();
+    btn.disabled = false;
+}
+
+// Лотерея (10 выигрышных чисел, 5 чисел игрока)
+function buildLotteryGrid() {
+    const grid = document.getElementById('lotteryGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    lotterySelected.clear();
+    updateLotteryCount();
+    for (let i = 21; i <= 80; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'lottery-num';
+        cell.textContent = i;
+        cell.addEventListener('click', () => {
+            if (lotterySelected.has(i)) {
+                lotterySelected.delete(i);
+                cell.classList.remove('selected');
+            } else if (lotterySelected.size < 5) {
+                lotterySelected.add(i);
+                cell.classList.add('selected');
+            }
+            updateLotteryCount();
+        });
+        grid.appendChild(cell);
+    }
+}
+
+function updateLotteryCount() {
+    document.getElementById('lotteryCount').textContent = lotterySelected.size;
+    document.getElementById('playLotteryBtn').disabled = lotterySelected.size !== 5;
+}
+
+async function playLottery() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    const bet = parseFloat(document.getElementById('lotteryBet').value);
+    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
+    if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
+    if (lotterySelected.size !== 5) { GradusWeb.notify.warning('Выберите ровно 5 чисел'); return; }
+
+    await updateBalance(-bet);
+
+    // Генерируем 10 выигрышных чисел
+    const winNumbers = new Set();
+    while (winNumbers.size < 10) {
+        winNumbers.add(Math.floor(Math.random() * 60) + 21);
+    }
+
+    let matches = 0;
+    lotterySelected.forEach(num => {
+        if (winNumbers.has(num)) matches++;
+    });
+
+    if (isRigged()) {
+        matches = 0;
+        const forcedWinNumbers = new Set();
+        while (forcedWinNumbers.size < 10) {
+            let num = Math.floor(Math.random() * 60) + 21;
+            if (!lotterySelected.has(num)) forcedWinNumbers.add(num);
+        }
+        winNumbers.clear();
+        forcedWinNumbers.forEach(n => winNumbers.add(n));
+    }
+
+    const multipliers = [0, 2, 5, 10, 20, 50];
+    const winMultiplier = multipliers[matches];
+    const winAmount = round(bet * winMultiplier);
+
+    const resultDiv = document.getElementById('lotteryResult');
+    resultDiv.innerHTML = `
+        <p>Выигрышные числа: ${[...winNumbers].join(', ')}</p>
+        <p>Ваши числа: ${[...lotterySelected].join(', ')}</p>
+        <p>Совпадений: ${matches}</p>
+        <p>${winMultiplier > 0 ? `Выигрыш: ${winAmount.toFixed(2)} ₽ (x${winMultiplier})` : 'Вы проиграли.'}</p>
+    `;
+
+    if (winAmount > 0) {
+        await updateBalance(winAmount);
+        GradusWeb.notify.success(`Поздравляем! Выигрыш: ${winAmount.toFixed(2)} ₽ (x${winMultiplier})`);
+    } else {
+        GradusWeb.notify.error('К сожалению, вы проиграли. Попробуйте снова.');
+    }
+    await incrementGamesPlayed();
+
+    document.querySelectorAll('.lottery-num').forEach(cell => {
+        const num = parseInt(cell.textContent);
+        if (winNumbers.has(num)) cell.classList.add('win');
+        if (lotterySelected.has(num) && winNumbers.has(num)) cell.classList.add('match');
+    });
+
+    setTimeout(() => {
+        buildLotteryGrid();
+        resultDiv.innerHTML = '';
+    }, 2000);
+}
+
+// ================== БЕСПЛАТНЫЕ ИГРЫ ==================
+// Гонки
+async function startRace() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    const userRef = `CosmoCasino/user/${currentUser.username}`;
+    try {
+        const raw = await GradusServer.firebaseGet(`${FIREBASE_URL}${userRef}.json`);
+        if (!raw || raw === 'null') return;
+        const data = JSON.parse(raw);
+        const today = new Date().toISOString().split('T')[0];
+        if (data.lastDailyRace === today) { GradusWeb.notify.warning('Вы уже участвовали сегодня'); return; }
+        await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyRace.json`, JSON.stringify(today));
+
+        let winner = Math.floor(Math.random() * 4) + 1;
+        const track = document.getElementById('raceTrack');
+        track.innerHTML = '';
+        const racers = ['🚗', '🚙', '🏎️', '🚕'];
+        for (let i = 0; i < 4; i++) {
+            const lane = document.createElement('div'); lane.className = 'race-lane';
+            const car = document.createElement('span'); car.className = 'race-car'; car.textContent = racers[i]; car.id = 'car' + (i+1);
+            lane.appendChild(car);
+            lane.innerHTML += '<div class="finish-line"></div>';
+            track.appendChild(lane);
+        }
+
+        const speeds = [1,2,3,4].map(() => Math.random() * 2 + 0.5);
+        const maxSpeed = Math.max(...speeds);
+        const duration = 3000;
+        for (let i = 0; i < 4; i++) {
+            const car = document.getElementById('car' + (i+1));
+            const distance = 200 - (speeds[i]/maxSpeed * 200);
+            car.style.transition = `left ${duration}ms linear`;
+            car.style.left = distance + 'px';
+        }
+
+        setTimeout(async () => {
+            const order = [0,1,2,3].sort((a,b) => speeds[b] - speeds[a]);
+            for (let place = 0; place < 4; place++) {
+                const idx = order[place];
+                const car = document.getElementById('car' + (idx+1));
+                car.style.transition = 'left 0.5s ease-out';
+                car.style.left = (200 - place*50) + 'px';
+            }
+            if (selectedRacer === order[0]+1) {
+                await updateBalance(10);
+                GradusWeb.notify.success('Ваш гонщик победил! +10 ₽');
+            } else {
+                GradusWeb.notify.info('Ваш гонщик проиграл. Попробуйте завтра.');
+            }
+            updateUI();
+        }, duration + 100);
+        selectedRacer = null;
+        document.getElementById('raceStartBtn').disabled = true;
+    } catch (e) { GradusWeb.notify.error('Ошибка соединения'); }
+}
+
+// Киберспорт
+async function startCyberMatch() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    const userRef = `CosmoCasino/user/${currentUser.username}`;
+    try {
+        const raw = await GradusServer.firebaseGet(`${FIREBASE_URL}${userRef}.json`);
+        if (!raw || raw === 'null') return;
+        const data = JSON.parse(raw);
+        const today = new Date().toISOString().split('T')[0];
+        if (data.lastDailyCyber === today) { GradusWeb.notify.warning('Вы уже играли сегодня'); return; }
+        await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyCyber.json`, JSON.stringify(today));
+
+        cybersportActive = true;
+        document.getElementById('startCyberBtn').disabled = true;
+        document.getElementById('cyberGameArea').style.display = 'block';
+
+        cyberTeams.left = [ {id:1, alive:true}, {id:2, alive:true}, {id:3, alive:true} ];
+        cyberTeams.right = [ {id:4, alive:true}, {id:5, alive:true}, {id:6, alive:true} ];
+        renderCyberField();
+
+        const battleLog = document.getElementById('cyberLog');
+        battleLog.innerHTML = '';
+        cybersportTimer = setInterval(() => {
+            const allAlive = [...cyberTeams.left.filter(p => p.alive), ...cyberTeams.right.filter(p => p.alive)];
+            if (allAlive.length === 0) {
+                clearInterval(cybersportTimer);
+                return;
+            }
+            const victimIdx = Math.floor(Math.random() * allAlive.length);
+            const victim = allAlive[victimIdx];
+            victim.alive = false;
+
+            renderCyberField();
+            battleLog.innerHTML += `<p>💀 ${victim.id <= 3 ? 'Альфа' : 'Браво'} игрок ${victim.id} убит!</p>`;
+
+            const leftAlive = cyberTeams.left.some(p => p.alive);
+            const rightAlive = cyberTeams.right.some(p => p.alive);
+            if (!leftAlive || !rightAlive) {
+                clearInterval(cybersportTimer);
+                cybersportActive = false;
+                let winnerTeam = leftAlive ? 1 : 2;
+                if (isRigged()) winnerTeam = winnerTeam === 1 ? 2 : 1;
+                const userWin = (selectedCyberTeam === winnerTeam);
+                if (userWin) {
+                    updateBalance(10);
+                    GradusWeb.notify.success('Ваша команда победила! +10 ₽');
+                } else {
+                    GradusWeb.notify.info('Ваша команда проиграла. Попробуйте завтра.');
+                }
+                document.getElementById('startCyberBtn').disabled = false;
+                updateUI();
+            }
+        }, 1000);
+    } catch (e) { GradusWeb.notify.error('Ошибка соединения'); }
+}
+
+function renderCyberField() {
+    const field = document.getElementById('cyberField');
+    if (!field) return;
+    field.innerHTML = `
+        <div class="cyber-team">
+            ${cyberTeams.left.map(p => `
+                <div class="cyber-player ${!p.alive ? 'dead' : ''}">
+                    <span>🔫</span> Альфа ${p.id} ${!p.alive ? '💀' : ''}
+                </div>
+            `).join('')}
+        </div>
+        <div class="cyber-team">
+            ${cyberTeams.right.map(p => `
+                <div class="cyber-player ${!p.alive ? 'dead' : ''}">
+                    <span>🔫</span> Браво ${p.id} ${!p.alive ? '💀' : ''}
+                </div>
+            `).join('')}
+        </div>
+    `;
 }
 
 // ================== UI ==================
