@@ -66,7 +66,7 @@ async function initSite() {
     }
 }
 
-// ================== НАВИГАЦИЯ (делегирование на document) ==================
+// ================== НАВИГАЦИЯ ==================
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -173,9 +173,10 @@ function showGamePanel(game) {
         case 'plinko':
             html = `<h2>🔴 Плинко</h2>
                 <p>Ставка: <input type="number" id="plinkoBet" min="5" step="0.1" placeholder="Сумма"></p>
-                <button id="dropBallBtn">Бросить шарик</button>
+                <p>Шариков (1–10): <input type="number" id="plinkoBalls" min="1" max="10" value="1" style="width:80px;"></p>
+                <button id="dropBallBtn">Бросить шарики</button>
                 <div id="plinkoGameArea" style="max-width: 500px; margin: 0 auto;">
-                    <div class="plinko-board" id="plinkoBoard" style="position: relative; width: 100%; height: 500px; background: #0a0a2e; border-radius: 12px; padding: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); overflow: hidden;"></div>
+                    <div class="plinko-board" id="plinkoBoard"></div>
                     <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
                         <div class="plinko-slot" style="width:60%; background:#f44336;">0x</div>
                         <div class="plinko-slot" style="width:30%; background:#ff9800;">2x</div>
@@ -214,7 +215,7 @@ function showGamePanel(game) {
         document.getElementById('cashoutMinesBtn').onclick = cashoutMines;
         updateMinesCoefficients();
     } else if (game === 'plinko') {
-        document.getElementById('dropBallBtn').onclick = dropPlinkoBall;
+        document.getElementById('dropBallBtn').onclick = dropPlinkoBalls;
         buildPlinkoBoard();
     } else if (game === 'lottery') {
         buildLotteryGrid();
@@ -241,6 +242,14 @@ function showFreeGamePanel(game) {
                 <div class="race-track" id="raceTrack"></div>
                 <div id="raceResult"></div>`;
             break;
+        case 'coinflip':
+            html = `<h2>💰 Орёл или Решка (бесплатно, раз в день)</h2>
+                <p>Выберите сторону:</p>
+                <button class="coin-btn" data-side="heads">🦅 Орёл</button>
+                <button class="coin-btn" data-side="tails">💰 Решка</button>
+                <button id="flipCoinBtn" disabled>Подбросить монету</button>
+                <div id="coinResult" style="margin-top:20px; font-size:2rem; text-align:center; min-height:100px;"></div>`;
+            break;
         case 'cybersport':
             html = `<h2>🔫 Киберспорт (ежедневно, бесплатно)</h2>
                 <p>Выберите команду:</p>
@@ -262,6 +271,13 @@ function showFreeGamePanel(game) {
             });
         });
         document.getElementById('raceStartBtn').onclick = startRace;
+    } else if (game === 'coinflip') {
+        document.querySelectorAll('.coin-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                selectCoinSide(this.dataset.side);
+            });
+        });
+        document.getElementById('flipCoinBtn').onclick = flipCoin;
     } else if (game === 'cybersport') {
         document.querySelectorAll('.cyber-btn').forEach(btn => {
             btn.addEventListener('click', function() {
@@ -271,6 +287,87 @@ function showFreeGamePanel(game) {
         document.getElementById('startCyberBtn').onclick = startCyberMatch;
     }
 }
+
+// ================== ОРЁЛ ИЛИ РЕШКА ==================
+let selectedCoinSide = null;
+
+function selectCoinSide(side) {
+    selectedCoinSide = side;
+    document.getElementById('flipCoinBtn').disabled = false;
+    document.querySelectorAll('.coin-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    const activeBtn = document.querySelector(`.coin-btn[data-side="${side}"]`);
+    if (activeBtn) {
+        activeBtn.style.background = '#ffd700';
+        activeBtn.style.color = '#000';
+    }
+}
+
+async function flipCoin() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    if (!selectedCoinSide) return;
+
+    const userRef = `CosmoCasino/user/${currentUser.username}`;
+    try {
+        const raw = await GradusServer.firebaseGet(`${FIREBASE_URL}${userRef}.json`);
+        if (!raw || raw === 'null') return;
+        const data = JSON.parse(raw);
+        const today = new Date().toISOString().split('T')[0];
+        if (data.lastDailyCoin === today) {
+            GradusWeb.notify.warning('Вы уже подбрасывали монету сегодня');
+            return;
+        }
+        await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}/lastDailyCoin.json`, JSON.stringify(today));
+    } catch (e) { GradusWeb.notify.error('Ошибка соединения'); return; }
+
+    const flipBtn = document.getElementById('flipCoinBtn');
+    flipBtn.disabled = true;
+
+    let win;
+    if (isRigged()) {
+        win = false;
+    } else {
+        win = Math.random() < 0.5;
+    }
+
+    const actualSide = win ? selectedCoinSide : (selectedCoinSide === 'heads' ? 'tails' : 'heads');
+
+    const resultDiv = document.getElementById('coinResult');
+    resultDiv.innerHTML = '<div class="coin-animation">💰</div>';
+    const coinEl = resultDiv.querySelector('.coin-animation');
+    coinEl.style.cssText = 'font-size:5rem; animation: flipCoin 0.6s ease-in-out;';
+
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    resultDiv.innerHTML = `<div style="font-size:4rem;">${actualSide === 'heads' ? '🦅' : '💰'}</div>
+                           <p style="font-size:1.5rem;">${actualSide === 'heads' ? 'Орёл' : 'Решка'}</p>`;
+
+    if (win) {
+        await updateBalance(10);
+        GradusWeb.notify.success('Вы угадали! +10 ₽');
+    } else {
+        GradusWeb.notify.info('Не угадали. Попробуйте завтра.');
+    }
+
+    updateUI();
+    selectedCoinSide = null;
+    document.querySelectorAll('.coin-btn').forEach(b => { b.style.background = ''; b.style.color = ''; });
+    document.getElementById('flipCoinBtn').disabled = true;
+}
+
+// CSS-анимация монетки
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes flipCoin {
+        0% { transform: rotateY(0deg); }
+        50% { transform: rotateY(180deg); }
+        100% { transform: rotateY(360deg); }
+    }
+    .coin-animation {
+        display: inline-block;
+        animation: flipCoin 0.6s ease-in-out;
+    }
+`;
+document.head.appendChild(style);
 
 // ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ВЫБОРА ==================
 function selectDice(type, value) {
@@ -379,6 +476,7 @@ async function submitLogin() {
                     totalWithdrawn: data.totalWithdrawn || 0,
                     lastDailyRace: data.lastDailyRace || '',
                     lastDailyCyber: data.lastDailyCyber || '',
+                    lastDailyCoin: data.lastDailyCoin || '',
                     passwordHash: hashed
                 };
                 GradusWeb.cache.set('currentUser', currentUser);
@@ -423,7 +521,8 @@ async function submitReg() {
             totalDeposited: 0,
             totalWithdrawn: 0,
             lastDailyRace: '',
-            lastDailyCyber: ''
+            lastDailyCyber: '',
+            lastDailyCoin: ''
         };
         await GradusServer.firebaseSet(`${FIREBASE_URL}${userRef}.json`, JSON.stringify(newUser));
         currentUser = {
@@ -435,6 +534,7 @@ async function submitReg() {
             totalWithdrawn: 0,
             lastDailyRace: '',
             lastDailyCyber: '',
+            lastDailyCoin: '',
             passwordHash: hashed
         };
         GradusWeb.cache.set('currentUser', currentUser);
@@ -501,6 +601,7 @@ async function refreshBalance() {
             currentUser.totalWithdrawn = round(parsed.totalWithdrawn || 0);
             currentUser.lastDailyRace = parsed.lastDailyRace || '';
             currentUser.lastDailyCyber = parsed.lastDailyCyber || '';
+            currentUser.lastDailyCoin = parsed.lastDailyCoin || '';
             document.getElementById('balanceDisplay').textContent = currentUser.balance.toFixed(2) + ' ₽';
         }
     } catch (e) {}
@@ -1080,14 +1181,15 @@ async function cashoutMines() {
     endMinesGame();
 }
 
-// Плинко (начинается с 6 колышков, всё поле заполнено)
+// Плинко (выбор количества шариков, защита от множественных кликов)
+let plinkoBusy = false;
+
 function buildPlinkoBoard() {
     const board = document.getElementById('plinkoBoard');
     if (!board) return;
     board.innerHTML = '';
     const boardWidth = board.offsetWidth;
     const boardHeight = board.offsetHeight || 500;
-    // Ряды колышков: от 6 до 19 и обратно (16 рядов)
     const rowsPegs = [6,7,8,9,10,11,12,13,14,15,14,13,12,11,10,9];
     const rowCount = rowsPegs.length;
     const rowHeight = (boardHeight - 20) / rowCount;
@@ -1102,7 +1204,6 @@ function buildPlinkoBoard() {
         rowDiv.style.justifyContent = 'center';
         const gap = Math.max(2, (boardWidth / pegsInRow) * 0.3);
         rowDiv.style.gap = gap + 'px';
-        // Шахматный порядок для чётных рядов
         if (r % 2 === 1) {
             rowDiv.style.paddingLeft = (boardWidth / (pegsInRow + 1)) + 'px';
         }
@@ -1116,63 +1217,97 @@ function buildPlinkoBoard() {
     }
 }
 
-async function dropPlinkoBall() {
+async function dropPlinkoBalls() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    if (plinkoBusy) return;
     const bet = parseFloat(document.getElementById('plinkoBet').value);
     if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
+    const ballCountInput = document.getElementById('plinkoBalls');
+    let ballCount = parseInt(ballCountInput?.value) || 1;
+    ballCount = Math.min(10, Math.max(1, ballCount));
+    const perBallBet = round(bet / ballCount);
     if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
     await updateBalance(-bet);
 
     const btn = document.getElementById('dropBallBtn');
     btn.disabled = true;
+    plinkoBusy = true;
 
+    let totalWin = 0;
     const board = document.getElementById('plinkoBoard');
     const boardWidth = board.offsetWidth;
     const boardHeight = board.offsetHeight;
-    const colWidth = boardWidth / 7; // финальных слотов всё равно 7
-
-    let position;
-    if (isRigged()) {
-        position = Math.floor(Math.random() * 4); // 0-3
-    } else {
-        position = 3; // центр
-    }
-
-    const ball = document.createElement('div');
-    ball.style.cssText = 'position: absolute; width: 26px; height: 26px; background: radial-gradient(circle at 30% 30%, #ffd700, #b8860b); border-radius: 50%; box-shadow: 0 0 12px rgba(255,215,0,0.8); transition: left 0.1s ease-in, top 0.1s ease-in; z-index: 10;';
-    board.appendChild(ball);
-
-    ball.style.left = (position * colWidth + colWidth/2 - 13) + 'px';
-    ball.style.top = '5px';
-
+    const colWidth = boardWidth / 7;
     const rowsPegs = [6,7,8,9,10,11,12,13,14,15,14,13,12,11,10,9];
     const rowHeight = (boardHeight - 20) / rowsPegs.length;
 
-    for (let i = 1; i < rowsPegs.length; i++) {
-        const direction = Math.random() < 0.5 ? -1 : 1;
-        if (position > 0 && direction === -1) position--;
-        else if (position < 6 && direction === 1) position++;
+    // Массив для хранения данных о каждом шаре
+    const balls = [];
+
+    // Создаём все шары и задаём начальные позиции (ещё без анимации)
+    for (let i = 0; i < ballCount; i++) {
+        let position;
+        if (isRigged()) {
+            position = Math.floor(Math.random() * 4); // 0-3 (0x)
+        } else {
+            position = 3; // центр
+        }
+        const ball = document.createElement('div');
+        ball.style.cssText = 'position: absolute; width: 26px; height: 26px; background: radial-gradient(circle at 30% 30%, #ffd700, #b8860b); border-radius: 50%; box-shadow: 0 0 12px rgba(255,215,0,0.8); z-index: 10;';
         ball.style.left = (position * colWidth + colWidth/2 - 13) + 'px';
-        ball.style.top = (i * rowHeight + 10) + 'px';
-        await new Promise(resolve => setTimeout(resolve, 100));
+        ball.style.top = '5px';
+        board.appendChild(ball);
+        balls.push({ element: ball, position: position, finished: false, multiplier: 0 });
     }
 
-    let multiplier = 0;
-    if (position >= 0 && position <= 3) multiplier = 0;
-    else if (position >= 4 && position <= 5) multiplier = 2;
-    else if (position === 6) multiplier = 5;
+    // Функция анимации одного шара (возвращает промис)
+    function animateBall(ballObj) {
+        return new Promise(resolve => {
+            let pos = ballObj.position;
+            let row = 0;
+            const interval = setInterval(() => {
+                if (row >= rowsPegs.length - 1) {
+                    clearInterval(interval);
+                    // Определяем результат
+                    let mult = 0;
+                    if (pos >= 0 && pos <= 3) mult = 0;
+                    else if (pos >= 4 && pos <= 5) mult = 2;
+                    else if (pos === 6) mult = 5;
+                    ballObj.multiplier = mult;
+                    ballObj.element.remove();
+                    resolve();
+                    return;
+                }
+                // Движение влево/вправо
+                const direction = Math.random() < 0.5 ? -1 : 1;
+                if (pos > 0 && direction === -1) pos--;
+                else if (pos < 6 && direction === 1) pos++;
+                ballObj.position = pos;
+                ballObj.element.style.left = (pos * colWidth + colWidth/2 - 13) + 'px';
+                ballObj.element.style.top = (row * rowHeight + 30) + 'px';
+                row++;
+            }, 80);
+        });
+    }
 
-    ball.remove();
+    // Запускаем все анимации одновременно
+    const animations = balls.map(ball => animateBall(ball));
+    await Promise.all(animations);
 
-    const winAmount = round(bet * multiplier);
-    if (winAmount > 0) {
-        await updateBalance(winAmount);
-        GradusWeb.notify.success(`Выигрыш: ${winAmount.toFixed(2)} ₽ (x${multiplier})`);
+    // Суммируем выигрыш
+    balls.forEach(ball => {
+        totalWin += perBallBet * ball.multiplier;
+    });
+
+    if (totalWin > 0) {
+        await updateBalance(totalWin);
+        GradusWeb.notify.success(`Общий выигрыш: ${totalWin.toFixed(2)} ₽`);
     } else {
-        GradusWeb.notify.error('Шарик упал в 0x. Попробуйте снова.');
+        GradusWeb.notify.error('Ни один шарик не выиграл. Попробуйте снова.');
     }
     await incrementGamesPlayed();
     btn.disabled = false;
+    plinkoBusy = false;
 }
 
 // Лотерея (защита от двойного клика)
@@ -1209,7 +1344,7 @@ async function playLottery() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
     const btn = document.getElementById('playLotteryBtn');
     if (!btn) return;
-    btn.disabled = true; // блокировка сразу
+    btn.disabled = true;
 
     const bet = parseFloat(document.getElementById('lotteryBet').value);
     if (!bet || bet < 5) { btn.disabled = false; GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
@@ -1268,8 +1403,6 @@ async function playLottery() {
     setTimeout(() => {
         buildLotteryGrid();
         resultDiv.innerHTML = '';
-        // Кнопка разблокируется после перестроения (buildLotteryGrid вызовет updateLotteryCount, которая разблокирует, если выбор сброшен – но у нас выбор сброшен, так что кнопка будет disabled)
-        // Поэтому принудительно не разблокируем, новый выбор активирует её.
     }, 2000);
 }
 
