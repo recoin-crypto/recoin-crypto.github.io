@@ -14,7 +14,7 @@ let selectedCyberTeam = null;
 let autoSpinTimer = null;
 let autoSpinCount = 0;
 let antiCheatInstance = null;
-let hackDetected = false;   // глобальный флаг блокировки серверных операций
+let hackDetected = false;
 
 let minesGame = null;
 let lotterySelected = new Set();
@@ -31,7 +31,7 @@ async function initSite() {
     antiCheatInstance = GradusWeb.antiCheat.createInstance((name, val, reason) => {
         console.warn('[AC] Обнаружен взлом переменной', name, reason);
         GradusWeb.notify.error('Обнаружена попытка взлома!');
-        hackDetected = true;   // любые попытки вмешательства – всё блокируется
+        hackDetected = true;
     });
     antiCheatInstance.startMonitoring();
     const demoVar = antiCheatInstance.addVariable('demo_health', 100);
@@ -58,7 +58,6 @@ async function initSite() {
     setupNavigation();
     renderCaptchas();
 
-    // При debug:true отключаем защиту DevTools
     if (siteConfig.debug && window.GradusWeb && window.GradusWeb.security) {
         if (window.GradusWeb.security.disableDevToolsProtection) {
             window.GradusWeb.security.disableDevToolsProtection();
@@ -67,7 +66,7 @@ async function initSite() {
     }
 }
 
-// ================== НАВИГАЦИЯ (делегирование) ==================
+// ================== НАВИГАЦИЯ (делегирование на document) ==================
 function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -81,26 +80,19 @@ function setupNavigation() {
         });
     });
 
-    const gamesGrid = document.getElementById('gamesGrid');
-    const freeTab = document.getElementById('freeTab');
-    if (gamesGrid) {
-        gamesGrid.addEventListener('click', (e) => {
-            const card = e.target.closest('.game-card');
-            if (card) {
-                const game = card.dataset.game;
-                if (game) showGamePanel(game);
-            }
-        });
-    }
-    if (freeTab) {
-        freeTab.addEventListener('click', (e) => {
-            const card = e.target.closest('.game-card');
-            if (card) {
-                const game = card.dataset.game;
-                if (game) showFreeGamePanel(game);
-            }
-        });
-    }
+    document.addEventListener('click', function(e) {
+        const card = e.target.closest('.game-card');
+        if (!card) return;
+        const game = card.dataset.game;
+        if (!game) return;
+        const freeTab = document.getElementById('freeTab');
+        const gamesGrid = document.getElementById('gamesGrid');
+        if (freeTab && freeTab.contains(card)) {
+            showFreeGamePanel(game);
+        } else if (gamesGrid && gamesGrid.contains(card)) {
+            showGamePanel(game);
+        }
+    });
 }
 
 // ================== ПЛАТНЫЕ ИГРЫ ==================
@@ -183,7 +175,7 @@ function showGamePanel(game) {
                 <p>Ставка: <input type="number" id="plinkoBet" min="5" step="0.1" placeholder="Сумма"></p>
                 <button id="dropBallBtn">Бросить шарик</button>
                 <div id="plinkoGameArea" style="max-width: 500px; margin: 0 auto;">
-                    <div class="plinko-board" id="plinkoBoard" style="position: relative; width: 100%; height: 380px; background: #0a0a2e; border-radius: 12px; padding: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); overflow: hidden;"></div>
+                    <div class="plinko-board" id="plinkoBoard" style="position: relative; width: 100%; height: 500px; background: #0a0a2e; border-radius: 12px; padding: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); overflow: hidden;"></div>
                     <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
                         <div class="plinko-slot" style="width:60%; background:#f44336;">0x</div>
                         <div class="plinko-slot" style="width:30%; background:#ff9800;">2x</div>
@@ -1088,34 +1080,36 @@ async function cashoutMines() {
     endMinesGame();
 }
 
-// Плинко (исправленная анимация и подкрутка)
+// Плинко (начинается с 6 колышков, всё поле заполнено)
 function buildPlinkoBoard() {
     const board = document.getElementById('plinkoBoard');
     if (!board) return;
     board.innerHTML = '';
     const boardWidth = board.offsetWidth;
-    const boardHeight = board.offsetHeight || 380;
-    // 13 рядов колышков для заполнения всего поля
-    const rowsPegs = [3,4,5,6,7,8,9,10,11,10,9,8,7];
+    const boardHeight = board.offsetHeight || 500;
+    // Ряды колышков: от 6 до 19 и обратно (16 рядов)
+    const rowsPegs = [6,7,8,9,10,11,12,13,14,15,14,13,12,11,10,9];
     const rowCount = rowsPegs.length;
-    const rowHeight = (boardHeight - 40) / (rowCount - 1);
+    const rowHeight = (boardHeight - 20) / rowCount;
 
     for (let r = 0; r < rowCount; r++) {
         const pegsInRow = rowsPegs[r];
         const rowDiv = document.createElement('div');
         rowDiv.style.position = 'absolute';
         rowDiv.style.width = '100%';
-        rowDiv.style.top = (r * rowHeight + 20) + 'px';
+        rowDiv.style.top = (r * rowHeight + 10) + 'px';
         rowDiv.style.display = 'flex';
         rowDiv.style.justifyContent = 'center';
-        rowDiv.style.gap = '10px';
-        // шахматный порядок для чётных рядов
+        const gap = Math.max(2, (boardWidth / pegsInRow) * 0.3);
+        rowDiv.style.gap = gap + 'px';
+        // Шахматный порядок для чётных рядов
         if (r % 2 === 1) {
             rowDiv.style.paddingLeft = (boardWidth / (pegsInRow + 1)) + 'px';
         }
         for (let c = 0; c < pegsInRow; c++) {
             const peg = document.createElement('div');
-            peg.style.cssText = 'width:18px; height:18px; background: radial-gradient(circle at 30% 30%, #fff, #4f46e5); border-radius:50%; box-shadow: 0 0 5px rgba(255,255,255,0.5);';
+            const size = Math.min(22, boardWidth / pegsInRow * 0.7);
+            peg.style.cssText = `width:${size}px; height:${size}px; background: radial-gradient(circle at 30% 30%, #fff, #4f46e5); border-radius:50%; box-shadow: 0 0 4px rgba(255,255,255,0.5);`;
             rowDiv.appendChild(peg);
         }
         board.appendChild(rowDiv);
@@ -1135,36 +1129,34 @@ async function dropPlinkoBall() {
     const board = document.getElementById('plinkoBoard');
     const boardWidth = board.offsetWidth;
     const boardHeight = board.offsetHeight;
-    const colWidth = boardWidth / 7; // 7 финальных слотов
+    const colWidth = boardWidth / 7; // финальных слотов всё равно 7
 
-    // Если подкрутка — сразу направляем в проигрышный слот (0x)
+    let position;
     if (isRigged()) {
-        var position = Math.floor(Math.random() * 4); // 0-3 => 0x
+        position = Math.floor(Math.random() * 4); // 0-3
     } else {
-        var position = 3; // стартовая позиция (центр)
+        position = 3; // центр
     }
 
-    // Создаём шарик
     const ball = document.createElement('div');
-    ball.style.cssText = 'position: absolute; width: 22px; height: 22px; background: radial-gradient(circle at 30% 30%, #ffd700, #b8860b); border-radius: 50%; box-shadow: 0 0 10px rgba(255,215,0,0.8); transition: left 0.15s ease-in, top 0.15s ease-in; z-index: 10;';
+    ball.style.cssText = 'position: absolute; width: 26px; height: 26px; background: radial-gradient(circle at 30% 30%, #ffd700, #b8860b); border-radius: 50%; box-shadow: 0 0 12px rgba(255,215,0,0.8); transition: left 0.1s ease-in, top 0.1s ease-in; z-index: 10;';
     board.appendChild(ball);
 
-    ball.style.left = (position * colWidth + colWidth/2 - 11) + 'px';
-    ball.style.top = '0px';
+    ball.style.left = (position * colWidth + colWidth/2 - 13) + 'px';
+    ball.style.top = '5px';
 
-    const rowsPegs = [3,4,5,6,7,8,9,10,11,10,9,8,7];
-    const rowHeight = (boardHeight - 40) / (rowsPegs.length - 1);
+    const rowsPegs = [6,7,8,9,10,11,12,13,14,15,14,13,12,11,10,9];
+    const rowHeight = (boardHeight - 20) / rowsPegs.length;
 
     for (let i = 1; i < rowsPegs.length; i++) {
         const direction = Math.random() < 0.5 ? -1 : 1;
         if (position > 0 && direction === -1) position--;
         else if (position < 6 && direction === 1) position++;
-        ball.style.left = (position * colWidth + colWidth/2 - 11) + 'px';
-        ball.style.top = (i * rowHeight + 20) + 'px';
-        await new Promise(resolve => setTimeout(resolve, 120));
+        ball.style.left = (position * colWidth + colWidth/2 - 13) + 'px';
+        ball.style.top = (i * rowHeight + 10) + 'px';
+        await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Результат по финальной позиции
     let multiplier = 0;
     if (position >= 0 && position <= 3) multiplier = 0;
     else if (position >= 4 && position <= 5) multiplier = 2;
@@ -1183,7 +1175,7 @@ async function dropPlinkoBall() {
     btn.disabled = false;
 }
 
-// Лотерея (исправлено двойное нажатие)
+// Лотерея (защита от двойного клика)
 function buildLotteryGrid() {
     const grid = document.getElementById('lotteryGrid');
     if (!grid) return;
@@ -1215,19 +1207,17 @@ function updateLotteryCount() {
 
 async function playLottery() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
-    // Блокируем кнопку сразу, чтобы предотвратить двойной клик
     const btn = document.getElementById('playLotteryBtn');
     if (!btn) return;
-    btn.disabled = true;
+    btn.disabled = true; // блокировка сразу
 
     const bet = parseFloat(document.getElementById('lotteryBet').value);
-    if (!bet || bet < 5) { GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
-    if (currentUser.balance < bet) { GradusWeb.notify.error('Недостаточно средств'); return; }
-    if (lotterySelected.size !== 5) { GradusWeb.notify.warning('Выберите ровно 5 чисел'); return; }
+    if (!bet || bet < 5) { btn.disabled = false; GradusWeb.notify.warning('Минимальная ставка 5 ₽'); return; }
+    if (currentUser.balance < bet) { btn.disabled = false; GradusWeb.notify.error('Недостаточно средств'); return; }
+    if (lotterySelected.size !== 5) { btn.disabled = false; GradusWeb.notify.warning('Выберите ровно 5 чисел'); return; }
 
     await updateBalance(-bet);
 
-    // Генерируем 10 выигрышных чисел
     const winNumbers = new Set();
     while (winNumbers.size < 10) {
         winNumbers.add(Math.floor(Math.random() * 60) + 21);
@@ -1278,7 +1268,8 @@ async function playLottery() {
     setTimeout(() => {
         buildLotteryGrid();
         resultDiv.innerHTML = '';
-        // кнопка будет разблокирована после перестроения сетки (buildLotteryGrid сбрасывает выбор и обновляет состояние кнопки)
+        // Кнопка разблокируется после перестроения (buildLotteryGrid вызовет updateLotteryCount, которая разблокирует, если выбор сброшен – но у нас выбор сброшен, так что кнопка будет disabled)
+        // Поэтому принудительно не разблокируем, новый выбор активирует её.
     }, 2000);
 }
 
