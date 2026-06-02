@@ -1,7 +1,7 @@
 "use strict";
 // Cosmo Casino – полный backend (Gradus Web 2.3, античит, подкрутка)
 const siteConfig = { debug: false, dbFile: '' };
-const RIG_PROBABILITY = 0.4;
+const RIG_PROBABILITY = 0.41;
 
 let currentUser = null;
 let FIREBASE_URL = '';
