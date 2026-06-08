@@ -1,16 +1,19 @@
+// gradus-web.js – Gradus Static.JS Utility Library v2.4
 /**
  * Gradus Web — Утилиты для статических сайтов (JavaScript)
- * Версия 2.3 — максимальная безопасность, скрытая соль, очистка SecretStorage, защита от F12, встроенный AntiCheat с onHack.
+ * Версия 2.4 — максимальная безопасность, скрытая соль, очистка SecretStorage,
+ * защита от F12, встроенный AntiCheat с onHack, base64, throttle.
+ * Ключ шифрования SecretStorage теперь хранится только в памяти.
  */
 (function (window) {
     'use strict';
 
     // ========== ПРИВАТНЫЕ ПЕРЕМЕННЫЕ ==========
-    const _salt = 'GradusSalt2025!X#_v2.3';
+    const _salt = 'GradusSalt2025!X#_v2.4';
     const _prefix = 'gs_sec_v3_';
 
     const GradusWeb = {
-        version: '2.3.0',
+        version: '2.4.0',
 
         _log(type, msg) {
             const prefix = '[GRADUS-WEB]';
@@ -119,6 +122,14 @@
             return result;
         },
 
+        // ========== 2.5 BASE64 (добавлено) ==========
+        toBase64(str) {
+            try { return btoa(unescape(encodeURIComponent(str))); } catch(e) { return ''; }
+        },
+        fromBase64(b64) {
+            try { return decodeURIComponent(escape(atob(b64))); } catch(e) { return ''; }
+        },
+
         // ========== 3. CAPTCHA ==========
         captcha: {
             generate() {
@@ -212,8 +223,10 @@
             warning(msg, d) { this.show(msg, 'warning', d); }
         },
 
-        // ========== 7. SECRET STORAGE (AES‑GCM) ==========
+        // ========== 7. SECRET STORAGE (AES‑GCM, ключ только в памяти) ==========
         secretStorage: {
+            _cachedKey: null,
+
             _getFingerprint() {
                 const nav = window.navigator, screen = window.screen;
                 const str = [nav.userAgent, nav.language, nav.hardwareConcurrency || 0,
@@ -225,6 +238,7 @@
             },
 
             async _getKey() {
+                if (this._cachedKey) return this._cachedKey;
                 const fp = this._getFingerprint();
                 const enc = new TextEncoder();
                 const keyMaterial = await crypto.subtle.importKey(
@@ -235,7 +249,7 @@
                     ['deriveBits', 'deriveKey']
                 );
                 const saltEnc = enc.encode(_salt);
-                return crypto.subtle.deriveKey(
+                this._cachedKey = await crypto.subtle.deriveKey(
                     {
                         name: 'PBKDF2',
                         salt: saltEnc,
@@ -247,6 +261,7 @@
                     false,
                     ['encrypt', 'decrypt']
                 );
+                return this._cachedKey;
             },
 
             async _encrypt(plaintext, key) {
@@ -371,6 +386,18 @@
             },
 
             sanitizeScript(input) { return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''); }
+        },
+
+        // ========== 8.5 THROTTLE (добавлено) ==========
+        throttle(fn, delay) {
+            let last = 0;
+            return function (...args) {
+                const now = Date.now();
+                if (now - last >= delay) {
+                    last = now;
+                    fn.apply(this, args);
+                }
+            };
         },
 
         // ========== 9. ВСТРОЕННЫЙ АНТИЧИТ (с onHack) ==========
