@@ -1,3 +1,4 @@
+// client.js – Gradus Static.JS Client v2.4 (новые плейсхолдеры, защита от переопределения)
 const GradusClient = {
     _config: {},
     _customHandlers: {},
@@ -73,8 +74,10 @@ const GradusClient = {
     async _execute(func, rawArgs) {
         const args = await this._parseArgs(rawArgs);
 
+        // Сначала проверяем пользовательские обработчики
         if (this._customHandlers[func]) return await this._customHandlers[func](...args);
 
+        // Затем встроенные
         const G = window.GradusWeb;
         switch (func) {
             case 'cache_read':   return G.cache.get(args[0] ?? '') ?? '';
@@ -140,7 +143,29 @@ const GradusClient = {
                 if (args.length >= 1) G.notify.show(args[0], args[1] || 'info', parseInt(args[2]) || 3000);
                 return '';
 
-            // Демонстрационный обработчик
+            // Новые плейсхолдеры (v2.4)
+            case 'base64_encode': return G.toBase64(args[0] || '');
+            case 'base64_decode': return G.fromBase64(args[0] || '');
+            case 'url_encode': return encodeURIComponent(args[0] || '');
+            case 'url_decode': return decodeURIComponent(args[0] || '');
+            case 'escape_html': return G.security.sanitizeHTML(args[0] || '');
+            case 'nl2br': return (args[0] || '').replace(/\n/g, '<br>');
+            case 'random_hex_color': return '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+            case 'clipboard_copy':
+                if (navigator.clipboard) navigator.clipboard.writeText(args[0] || '');
+                return '';
+            case 'countdown': {
+                const end = new Date(args[0]).getTime();
+                const now = Date.now();
+                if (isNaN(end) || end <= now) return '0 дн. 0 ч. 0 мин. 0 сек.';
+                let diff = end - now;
+                const days = Math.floor(diff / 86400000); diff %= 86400000;
+                const hours = Math.floor(diff / 3600000); diff %= 3600000;
+                const mins = Math.floor(diff / 60000); diff %= 60000;
+                const secs = Math.floor(diff / 1000);
+                return `${days} дн. ${hours} ч. ${mins} мин. ${secs} сек.`;
+            }
+
             case 'get_api_key_preview':
                 const key = await G.secretStorage.get('api_key');
                 return key ? key.substr(0, 4) + '...' : 'не найден';
