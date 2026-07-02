@@ -262,65 +262,31 @@ function getTransactionTypeLabel(type) {
 async function updatePriceChange() {
     const priceChangeEl = document.getElementById('price-change');
     if (!priceChangeEl) return;
-
     try {
-        // Получаем текущую цену
-        const priceData = await readFirebase('price_current');
-        if (!priceData || typeof priceData.price !== 'number') {
-            priceChangeEl.textContent = '▲ 0.00%';
-            return;
-        }
-        const currentPrice = priceData.price;
-
-        // Получаем историю цен
         const history = await readFirebase('price_history');
-        if (!history) {
-            priceChangeEl.textContent = '▲ 0.00%';
-            return;
+        if (!history) { priceChangeEl.textContent = '▲ 0.00%'; return; }
+        const entries = Object.values(history).sort((a,b) => a.timestamp - b.timestamp);
+        if (entries.length < 2) { priceChangeEl.textContent = '▲ 0.00%'; return; }
+        const now = Date.now();
+        const dayAgo = now - 86400000;
+        let oldPrice = null;
+        for (let i = entries.length - 1; i >= 0; i--) {
+            if (entries[i].timestamp <= dayAgo) {
+                oldPrice = entries[i].price;
+                break;
+            }
         }
-
-        const entries = Object.values(history).sort((a, b) => a.timestamp - b.timestamp);
-        if (entries.length < 2) {
-            priceChangeEl.textContent = '▲ 0.00%';
-            return;
-        }
-
-        // Берем предпоследнюю цену (последняя - текущая, но мы уже имеем currentPrice)
-        // Но для надежности возьмем последнюю запись из истории (которая может быть равна currentPrice, если не обновилась)
-        // Лучше использовать последнюю запись из history как oldPrice, а currentPrice как новую.
-        // Однако, если currentPrice уже записана в history, то последняя запись в history может быть текущей ценой.
-        // Поэтому возьмем две последние записи.
-        const lastEntry = entries[entries.length - 1];
-        const prevEntry = entries[entries.length - 2];
-        // Используем цену из lastEntry как oldPrice (если она не совпадает с currentPrice, то берем currentPrice)
-        let oldPrice = lastEntry.price;
-        // Если lastEntry timestamp очень старый (например, более 10 минут), то лучше использовать предпоследнюю?
-        // Но мы будем использовать предпоследнюю для изменения.
-        // Так как мы хотим изменение относительно предыдущего значения, то используем prevEntry.price
-        // Если предпоследней нет, то 0.
-        if (prevEntry) {
-            oldPrice = prevEntry.price;
-        } else {
-            // Если только одна запись, то изменения нет
-            priceChangeEl.textContent = '▲ 0.00%';
-            return;
-        }
-
-        if (oldPrice === 0) {
-            priceChangeEl.textContent = '▲ 0.00%';
-            return;
-        }
+        if (oldPrice === null) oldPrice = entries[0].price;
+        const currentPrice = entries[entries.length - 1].price;
         const change = ((currentPrice - oldPrice) / oldPrice) * 100;
         const sign = change >= 0 ? '▲' : '▼';
-        const formatted = `${sign} ${Math.abs(change).toFixed(2)}%`;
-        priceChangeEl.textContent = formatted;
+        priceChangeEl.textContent = `${sign} ${Math.abs(change).toFixed(2)}%`;
         priceChangeEl.className = 'price-change ' + (change >= 0 ? 'up' : 'down');
-
-    } catch (e) {
-        console.error('updatePriceChange error:', e);
+    } catch(e) {
         priceChangeEl.textContent = '▲ 0.00%';
     }
 }
+
 // ============================================================
 // 5. АВТОРИЗАЦИЯ
 // ============================================================
