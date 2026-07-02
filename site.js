@@ -373,16 +373,25 @@ async function loginUser(username, hashedPassword) {
 async function registerUser(username, hashedPassword, email, phone) {
     const allUsers = await readFirebase('users');
     if (allUsers) {
+        // Проверяем уникальность никнейма (email и phone кодируются, поэтому проверяем в закодированном виде)
         for (const [uid, data] of Object.entries(allUsers)) {
             if (data.username === username) { alert('Никнейм занят'); return; }
-            if (email && data.email === email) { alert('Email занят'); return; }
-            if (phone && data.phone === phone) { alert('Телефон занят'); return; }
+            // email и phone сравниваем в закодированном виде
+            if (email && data.email === GradusWeb.encode(email)) { alert('Email занят'); return; }
+            if (phone && data.phone === GradusWeb.encode(phone)) { alert('Телефон занят'); return; }
         }
     }
     const newUid = GradusWeb.generate.uuid();
     const newUser = {
-        username, password: hashedPassword, email: email || '', phone: phone || '',
-        balance_coins: 0, balance_usd: 0, ban: false, moder: false, transactions: {},
+        username: username,
+        password: hashedPassword,
+        email: email ? GradusWeb.encode(email) : '',   // Кодируем email
+        phone: phone ? GradusWeb.encode(phone) : '',   // Кодируем phone
+        balance_coins: 0,
+        balance_usd: 0,
+        ban: false,
+        moder: false,
+        transactions: {},
         lastPriceChangeDate: 0
     };
     await writeFirebase('users/' + newUid, newUser);
@@ -409,8 +418,14 @@ async function loadUser(uid) {
         showAuthModal();
         return;
     }
+    // Декодируем email и phone при загрузке
+    const decodedEmail = userData.email ? GradusWeb.decode(userData.email) : '';
+    const decodedPhone = userData.phone ? GradusWeb.decode(userData.phone) : '';
     currentUser = {
-        uid, username: userData.username, email: userData.email, phone: userData.phone,
+        uid: uid,
+        username: userData.username,
+        email: decodedEmail,
+        phone: decodedPhone,
         balance_coins: userData.balance_coins || 0,
         balance_usd: userData.balance_usd || 0,
         ban: userData.ban || false,
@@ -420,6 +435,7 @@ async function loadUser(uid) {
     };
     await GradusWeb.secretStorage.set('uid', uid);
     document.getElementById('logout-btn').style.display = 'inline-block';
+    log('Пользователь загружен: ' + currentUser.username);
 }
 
 async function logout() {
@@ -707,6 +723,10 @@ async function handleDeposit(e) {
 async function handleWithdraw(e) {
     e.preventDefault();
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
+    if (!currentUser.email && !currentUser.phone) {
+        alert('Для вывода необходимо привязать email или телефон');
+        return;
+    }
     if (!verifyCaptcha('withdraw-captcha')) { alert('Неверная капча'); return; }
     const amount = parseFloat(document.getElementById('withdraw-amount').value);
     const address = document.getElementById('withdraw-address').value.trim();
@@ -715,6 +735,7 @@ async function handleWithdraw(e) {
     const total = amount + fee;
     if (total > currentUser.balance_coins) { alert('Недостаточно монет с учётом комиссии'); return; }
     if (!address) { alert('Введите адрес'); return; }
+
 
     const pool = await readFirebase('commission_pool') || 0;
     await writeFirebase('commission_pool', pool + (fee * 0.85));
