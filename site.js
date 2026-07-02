@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия с поддержкой touch)
+// site.js — Reckon Coin (финальная версия с исправленной мобильной кнопкой меню)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -596,7 +596,6 @@ async function applyPriceChange(changeAmount, type) {
 function setupModals() {
     try {
         // Вспомогательная функция для поддержки touch на мобильных
-        // (без вывода логов на экран, только консоль)
         function addTouchSupport(element, callback) {
             if (!element) return;
             let processing = false;
@@ -727,6 +726,7 @@ function setupModals() {
             });
         }
 
+        // ===== МОБИЛЬНОЕ МЕНЮ (только здесь, без дублирования в setupNavigation) =====
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
             addTouchSupport(mobileToggle, function() {
@@ -735,6 +735,7 @@ function setupModals() {
             });
         }
 
+        // Навигационные ссылки (с поддержкой touch)
         document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
             addTouchSupport(link, function(e) {
                 e.preventDefault();
@@ -758,6 +759,7 @@ function setupModals() {
             });
         });
 
+        // Кнопки "Узнать больше" и прочие data-page
         document.querySelectorAll('[data-page]').forEach(function(el) {
             if (el.tagName === 'A' && el.closest('.nav')) return;
             addTouchSupport(el, function(e) {
@@ -991,10 +993,13 @@ async function handleComplaint(e) {
 }
 
 // ============================================================
-// 10. НАВИГАЦИЯ (дублируется, но оставлена для совместимости)
+// 10. НАВИГАЦИЯ (без дублирования обработчика для mobile-menu-toggle)
 // ============================================================
 function setupNavigation() {
     try {
+        // Навигационные ссылки (уже обработаны в setupModals с поддержкой touch, поэтому здесь дублируем только для совместимости)
+        // Но оставляем только те, которые не конфликтуют.
+        // ВАЖНО: удаляем обработчик для mobile-menu-toggle, чтобы избежать конфликта с setupModals.
         const navLinks = document.querySelectorAll('.nav a[data-page]');
         const pages = {
             'page-home': document.getElementById('page-home'),
@@ -1003,6 +1008,8 @@ function setupNavigation() {
         };
         navLinks.forEach(link => {
             link.addEventListener('click', function(e) {
+                // Не дублируем, если уже есть обработчик в setupModals?
+                // Но здесь просто добавим, чтобы на случай, если setupModals не сработает.
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -1011,7 +1018,8 @@ function setupNavigation() {
                 if (pages[pageId]) pages[pageId].classList.add('active');
                 navLinks.forEach(l => l.classList.remove('active'));
                 this.classList.add('active');
-                document.querySelector('.nav').classList.remove('open');
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.remove('open');
             });
         });
         document.querySelectorAll('[data-page]').forEach(el => {
@@ -1021,9 +1029,7 @@ function setupNavigation() {
                 if (link) link.click();
             });
         });
-        document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
-            document.querySelector('.nav').classList.toggle('open');
-        });
+        // НЕ ДОБАВЛЯЕМ ОБРАБОТЧИК ДЛЯ MOBILE-TOGGLE ЗДЕСЬ, ЧТОБЫ НЕ БЫЛО КОНФЛИКТА
     } catch(e) {}
 }
 
