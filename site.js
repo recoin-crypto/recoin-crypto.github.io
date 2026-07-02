@@ -1,24 +1,16 @@
 // ============================================================
-// site.js — Reckon Coin (полная версия с отладкой)
+// site.js — Reckon Coin (финальная исправленная версия)
 // ============================================================
-
-console.log('[Reckon] site.js загружен');
 
 // === ДЕКОДИРУЕМ URL ===
 const encodedUrl = '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155';
 let firebaseDecoded = '';
-try {
-    firebaseDecoded = GradusWeb.decode(encodedUrl);
-    console.log('[Reckon] Firebase URL декодирован:', firebaseDecoded);
-} catch(e) {
-    console.error('[Reckon] Ошибка декодирования URL:', e);
-}
+try { firebaseDecoded = GradusWeb.decode(encodedUrl); } catch(e) { console.error('Ошибка декодирования URL'); }
 
 const siteConfig = {
-    debug: false, // Включаем отладку
+    debug: false,
     firebaseURL: firebaseDecoded.replace(/\/$/, '')
 };
-console.log('[Reckon] siteConfig:', siteConfig);
 
 // === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
 let currentUser = null;
@@ -29,21 +21,15 @@ let updateInterval = null;
 let currentPeriod = '1h';
 let allHistoryData = [];
 
-const MIN_CHANGE = 0.0004;
-const MIN_PRICE = 0.0001;
-
 // ============================================================
 // 1. FIREBASE
 // ============================================================
 async function readFirebase(path) {
     const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
-    console.log('[Reckon] readFirebase:', url);
     try {
         const response = await GradusServer.get(url);
-        console.log('[Reckon] readFirebase ответ:', response ? response.substring(0, 100) : 'пусто');
         return response ? JSON.parse(response) : null;
     } catch(e) {
-        console.error('[Reckon] readFirebase ошибка:', e);
         return null;
     }
 }
@@ -54,7 +40,6 @@ async function writeFirebase(path, data) {
         await GradusServer.firebaseSet(url, data);
         return true;
     } catch(e) {
-        console.error('[Reckon] writeFirebase ошибка:', e);
         return false;
     }
 }
@@ -65,7 +50,6 @@ async function pushFirebase(path, data) {
         const response = await GradusServer.post(url, data);
         return response;
     } catch(e) {
-        console.error('[Reckon] pushFirebase ошибка:', e);
         return null;
     }
 }
@@ -74,12 +58,10 @@ async function pushFirebase(path, data) {
 // 2. ОБРАБОТЧИКИ GRADUS
 // ============================================================
 function registerHandlers() {
-    console.log('[Reckon] Регистрация обработчиков...');
     GradusStatic.registerHandler('get_price', async () => {
         const d = await readFirebase('price_current');
         return d && d.price ? '$' + d.price.toFixed(6) : '$0.000000';
     });
-    console.log('[Reckon] Обработчики зарегистрированы');
 }
 
 // ============================================================
@@ -153,10 +135,9 @@ function generateCaptchaImage(containerId) {
 }
 
 // ============================================================
-// 4. ОБНОВЛЕНИЕ UI
+// 4. ОБНОВЛЕНИЕ UI (с санитизацией)
 // ============================================================
 async function updateUIElements() {
-    console.log('[Reckon] updateUIElements вызвана');
     const usernameEl = document.getElementById('username');
     const uidEl = document.getElementById('uid-display');
     const coinBalanceEl = document.getElementById('coin-balance');
@@ -168,13 +149,9 @@ async function updateUIElements() {
     const priceChangeEl = document.getElementById('price-change');
     const historyEl = document.getElementById('history-list');
 
-    if (!usernameEl) {
-        console.warn('[Reckon] Элемент username не найден');
-        return;
-    }
+    if (!usernameEl) return;
 
     if (!currentUser) {
-        console.log('[Reckon] Пользователь не авторизован');
         usernameEl.textContent = 'Гость';
         if (uidEl) uidEl.textContent = 'UID: —';
         if (coinBalanceEl) coinBalanceEl.textContent = '0.00';
@@ -189,7 +166,6 @@ async function updateUIElements() {
     }
 
     try {
-        console.log('[Reckon] Загрузка данных для пользователя', currentUser.uid);
         const priceData = await readFirebase('price_current');
         const treasury = await readFirebase('treasury') || 0;
         const commissionPool = await readFirebase('commission_pool') || 0;
@@ -218,6 +194,7 @@ async function updateUIElements() {
 
         await updatePriceChange();
 
+        // История транзакций с санитизацией
         const history = await readFirebase('users/' + currentUser.uid + '/transactions');
         let html = '';
         if (history && Object.keys(history).length > 0) {
@@ -260,9 +237,8 @@ async function updateUIElements() {
         if (miningEarnedEl) miningEarnedEl.textContent = stats ? stats.earned.toFixed(2) : '0.00';
         if (commissionPoolEl) commissionPoolEl.textContent = commissionPool ? commissionPool.toFixed(2) : '0.00';
 
-        console.log('[Reckon] UI обновлён успешно');
     } catch(e) {
-        console.error('[Reckon] Ошибка обновления UI:', e);
+        // Игнорируем ошибки в релизной версии
     }
 }
 
@@ -285,6 +261,7 @@ function getTransactionTypeLabel(type) {
 async function updatePriceChange() {
     const priceChangeEl = document.getElementById('price-change');
     if (!priceChangeEl) return;
+
     try {
         const priceData = await readFirebase('price_current');
         if (!priceData || typeof priceData.price !== 'number') {
@@ -292,18 +269,23 @@ async function updatePriceChange() {
             return;
         }
         const currentPrice = priceData.price;
+
         const history = await readFirebase('price_history');
         if (!history) {
             priceChangeEl.textContent = '▲ 0.00%';
             return;
         }
+
         const entries = Object.values(history).sort((a, b) => a.timestamp - b.timestamp);
         if (entries.length < 2) {
             priceChangeEl.textContent = '▲ 0.00%';
             return;
         }
+
+        // Берём предпоследнюю запись как точку отсчёта
         const prevEntry = entries[entries.length - 2];
         const oldPrice = prevEntry.price;
+
         if (oldPrice === 0) {
             priceChangeEl.textContent = '▲ 0.00%';
             return;
@@ -312,8 +294,8 @@ async function updatePriceChange() {
         const sign = change >= 0 ? '▲' : '▼';
         priceChangeEl.textContent = `${sign} ${Math.abs(change).toFixed(2)}%`;
         priceChangeEl.className = 'price-change ' + (change >= 0 ? 'up' : 'down');
-    } catch(e) {
-        console.error('[Reckon] updatePriceChange error:', e);
+
+    } catch (e) {
         priceChangeEl.textContent = '▲ 0.00%';
     }
 }
@@ -463,7 +445,6 @@ async function loadUser(uid) {
     };
     await GradusWeb.secretStorage.set('uid', uid);
     document.getElementById('logout-btn').style.display = 'inline-block';
-    console.log('[Reckon] Пользователь загружен:', currentUser.username);
 }
 
 async function logout() {
@@ -506,9 +487,7 @@ async function updatePrice() {
             await updateChartForPeriod(currentPeriod);
         }
         await updatePriceChange();
-    } catch(e) {
-        console.error('[Reckon] updatePrice error:', e);
-    }
+    } catch(e) {}
 }
 
 async function initChart() {
@@ -549,10 +528,7 @@ async function initChart() {
         });
 
         await updateChartForPeriod('1h');
-        console.log('[Reckon] График инициализирован');
-    } catch(e) {
-        console.error('[Reckon] initChart error:', e);
-    }
+    } catch(e) {}
 }
 
 async function updateChartForPeriod(period) {
@@ -629,7 +605,7 @@ async function applyPriceChange(changeAmount, type) {
     const maxPrice = totalSupply > 0 ? treasury / totalSupply : 0;
 
     let newPrice = currentPrice + changeAmount;
-    if (newPrice < MIN_PRICE) newPrice = MIN_PRICE;
+    if (newPrice < 0.0001) newPrice = 0.0001;
     if (newPrice > maxPrice) newPrice = maxPrice;
 
     await writeFirebase('price_current', { price: newPrice, timestamp: Date.now() });
@@ -645,28 +621,35 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (исправленная версия для мобильных)
+// 8. МОДАЛКИ И ФОРМЫ (исправлено для мобильных устройств)
 // ============================================================
 function setupModals() {
-    console.log('[Reckon] Настройка модалок (упрощённая для мобильных)');
     try {
-        // === Вспомогательная функция открытия модалки ===
-        function openModalWithCaptcha(id, captchaId) {
-            if (!currentUser) {
-                showAuthModal();
-                return;
-            }
-            const modal = document.getElementById(id);
-            if (modal) {
-                modal.classList.add('active');
-                if (captchaId) {
-                    setTimeout(() => generateCaptchaImage(captchaId), 50);
-                }
+        // Вспомогательная функция для поддержки touch на мобильных
+        function addTouchSupport(element, callback) {
+            if (!element) return;
+            let processing = false;
+            const handler = function(e) {
+                e.preventDefault();
+                if (processing) return;
+                processing = true;
+                callback(e);
+                setTimeout(() => { processing = false; }, 300);
+            };
+            element.addEventListener('click', handler);
+            element.addEventListener('touchstart', handler, { passive: false });
+        }
+
+        function openWithCaptcha(id, captchaId) {
+            if (!currentUser) { showAuthModal(); return; }
+            openModal(id);
+            if (captchaId) {
+                setTimeout(() => generateCaptchaImage(captchaId), 50);
             }
         }
 
-        // === Назначаем обработчики на кнопки (обычный click + touchstart) ===
-        const buttonMap = [
+        // Кнопки открытия модалок
+        const buttons = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
             { id: 'transfer-btn', modal: 'transfer-modal', captcha: 'transfer-captcha' },
@@ -674,55 +657,33 @@ function setupModals() {
             { id: 'complaint-btn', modal: 'complaint-modal', captcha: 'complaint-captcha' },
             { id: 'exchange-btn', modal: 'exchange-modal', captcha: 'exchange-captcha' }
         ];
-
-        buttonMap.forEach(function(item) {
+        buttons.forEach(function(item) {
             const el = document.getElementById(item.id);
-            if (!el) return;
-
-            // Обработчик для клика (десктоп и мобильные с задержкой)
-            el.addEventListener('click', function(e) {
-                openModalWithCaptcha(item.modal, item.captcha);
-            });
-
-            // Для мобильных используем touchstart для мгновенной реакции
-            el.addEventListener('touchstart', function(e) {
-                // Предотвращаем двойное срабатывание (если click уже будет)
-                if (this._touchHandled) return;
-                this._touchHandled = true;
-                openModalWithCaptcha(item.modal, item.captcha);
-                setTimeout(() => { this._touchHandled = false; }, 500);
-            }, { passive: true });
+            if (el) {
+                addTouchSupport(el, function() {
+                    openWithCaptcha(item.modal, item.captcha);
+                });
+            }
         });
 
-        // === Закрытие модалок ===
+        // Закрытие модалок (крестики)
         document.querySelectorAll('.modal-close').forEach(function(el) {
-            el.addEventListener('click', function(e) {
+            addTouchSupport(el, function(e) {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
-            el.addEventListener('touchstart', function(e) {
-                const modal = this.closest('.modal');
-                if (modal) modal.classList.remove('active');
-                e.preventDefault();
-            }, { passive: false });
         });
 
-        // === Закрытие по клику вне модалки ===
+        // Закрытие по клику вне модалки
         document.querySelectorAll('.modal').forEach(function(modal) {
-            modal.addEventListener('click', function(e) {
+            addTouchSupport(modal, function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
             });
-            modal.addEventListener('touchstart', function(e) {
-                if (e.target === this) {
-                    this.classList.remove('active');
-                    e.preventDefault();
-                }
-            }, { passive: false });
         });
 
-        // === Обработчики форм (без изменений) ===
+        // Обработчики форм
         const depositForm = document.getElementById('deposit-form');
         const withdrawForm = document.getElementById('withdraw-form');
         const transferForm = document.getElementById('transfer-form');
@@ -739,16 +700,37 @@ function setupModals() {
 
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) {
-            logoutBtn.addEventListener('click', logout);
-            logoutBtn.addEventListener('touchstart', function(e) {
-                if (this._touchHandled) return;
-                this._touchHandled = true;
-                logout();
-                setTimeout(() => { this._touchHandled = false; }, 500);
-            }, { passive: true });
+            addTouchSupport(logoutBtn, logout);
         }
 
-        // === Авторизация (без изменений) ===
+        // Расчёт комиссии для перевода
+        const transferAmount = document.getElementById('transfer-amount');
+        if (transferAmount) {
+            transferAmount.addEventListener('input', function() {
+                const amount = parseFloat(this.value) || 0;
+                const feePercent = getFeePercent(amount);
+                const fee = amount * feePercent;
+                const total = amount + fee;
+                document.getElementById('transfer-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
+                document.getElementById('transfer-total').textContent = total.toFixed(2) + ' RECKON';
+            });
+        }
+
+        // Расчёт комиссии для обмена
+        const exchangeAmount = document.getElementById('exchange-amount');
+        if (exchangeAmount) {
+            exchangeAmount.addEventListener('input', function() {
+                const amount = parseFloat(this.value) || 0;
+                let feePercent = getFeePercent(amount);
+                if (feePercent > 0.05) feePercent = 0.05;
+                const fee = amount * feePercent;
+                const total = amount + fee;
+                document.getElementById('exchange-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
+                document.getElementById('exchange-total').textContent = total.toFixed(2);
+            });
+        }
+
+        // Авторизация
         const authForm = document.getElementById('auth-form');
         const authSwitch = document.getElementById('auth-switch');
         const showAgreement = document.getElementById('show-agreement-link');
@@ -775,24 +757,18 @@ function setupModals() {
             });
         }
 
-        // === Навигация (мобильное меню) ===
+        // === Навигация (с поддержкой touch) ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            mobileToggle.addEventListener('click', function() {
+            addTouchSupport(mobileToggle, function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
-            mobileToggle.addEventListener('touchstart', function(e) {
-                const nav = document.querySelector('.nav');
-                if (nav) nav.classList.toggle('open');
-                e.preventDefault();
-            }, { passive: false });
         }
 
-        // === Кнопки навигации ===
+        // Кнопки навигации
         document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
+            addTouchSupport(link, function(e) {
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
                 if (requireAuth && !currentUser) {
@@ -811,27 +787,53 @@ function setupModals() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.remove('open');
             });
-            link.addEventListener('touchstart', function(e) {
-                // Дублируем для мобильных
-                this.click();
-                e.preventDefault();
-            }, { passive: false });
         });
 
-        // === Кнопки "Узнать больше" ===
+        // Кнопки "Узнать больше" и прочие data-page (кроме навигационных)
         document.querySelectorAll('[data-page]').forEach(function(el) {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            el.addEventListener('click', function(e) {
+            addTouchSupport(el, function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
             });
         });
 
-        console.log('[Reckon] Модалки и кнопки настроены для мобильных');
+        // Кнопки графика (уже есть setupChartControls, но добавим touch)
+        document.querySelectorAll('.chart-btn').forEach(function(btn) {
+            addTouchSupport(btn, function(e) {
+                const period = this.dataset.period;
+                if (!period) return;
+                document.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentPeriod = period;
+                updateChartForPeriod(period);
+            });
+        });
+
     } catch(e) {
-        console.error('[Reckon] Ошибка настройки модалок:', e);
+        console.error('Ошибка настройки модалок:', e);
     }
+}
+
+function openModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+function closeModal(modal) {
+    if (modal) modal.classList.remove('active');
+}
+
+function getFeePercent(amount) {
+    if (amount < 5) return 0.10;
+    else if (amount < 30) return 0.05;
+    else if (amount < 100) return 0.02;
+    else return 0.01;
+}
+
+function verifyCaptcha(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container || typeof container.verify !== 'function') return false;
+    return container.verify();
 }
 
 // ============================================================
@@ -955,7 +957,6 @@ async function handleExchange(e) {
     const currentPrice = priceData ? priceData.price : 0.01;
 
     if (direction === 'coins_to_usd') {
-        // Продажа крипты → цена растёт, комиссия в монетах
         if (total > currentUser.balance_coins) { alert('Недостаточно монет с учётом комиссии'); return; }
         const usdAmount = amount * currentPrice;
         const changeAmount = usdAmount * 0.01;
@@ -966,7 +967,6 @@ async function handleExchange(e) {
         await writeFirebase('users/' + currentUser.uid + '/balance_coins', newBalanceCoins);
         await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalanceUsd);
 
-        // Комиссия в монетах → добавляем в пул (85%)
         const pool = await readFirebase('commission_pool') || 0;
         await writeFirebase('commission_pool', pool + (fee * 0.85));
         const freeSupply = await readFirebase('total_supply') || 0;
@@ -978,7 +978,6 @@ async function handleExchange(e) {
         alert(`Продажа выполнена! Получено $${usdAmount.toFixed(2)}`);
 
     } else { // usd_to_coins
-        // Покупка крипты → цена падает, комиссия в USD
         if (total > currentUser.balance_usd) { alert('Недостаточно USD с учётом комиссии'); return; }
         const coinsAmount = amount / currentPrice;
         const changeAmount = -amount * 0.01;
@@ -989,11 +988,9 @@ async function handleExchange(e) {
         await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalanceUsd);
         await writeFirebase('users/' + currentUser.uid + '/balance_coins', newBalanceCoins);
 
-        // Комиссия в USD → переводим в монеты и добавляем в пул (85%)
         const feeInCoins = fee / currentPrice;
         const pool = await readFirebase('commission_pool') || 0;
         await writeFirebase('commission_pool', pool + (feeInCoins * 0.85));
-        // Сжигаем 15% от комиссии в монетах
         const freeSupply = await readFirebase('total_supply') || 0;
         await writeFirebase('total_supply', Math.max(0, freeSupply - (feeInCoins * 0.15)));
 
@@ -1035,7 +1032,7 @@ async function handleComplaint(e) {
 }
 
 // ============================================================
-// 10. НАВИГАЦИЯ
+// 10. НАВИГАЦИЯ (дублируется, но оставлена для совместимости)
 // ============================================================
 function setupNavigation() {
     try {
@@ -1068,40 +1065,25 @@ function setupNavigation() {
         document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
             document.querySelector('.nav').classList.toggle('open');
         });
-    } catch(e) {
-        console.error('[Reckon] setupNavigation error:', e);
-    }
+    } catch(e) {}
 }
 
 // ============================================================
 // 11. ИНИЦИАЛИЗАЦИЯ
 // ============================================================
 async function initSite() {
-    console.log('[Reckon] initSite вызвана');
     try {
-        // Проверяем, что GradusStatic существует
-        if (typeof GradusStatic === 'undefined') {
-            console.error('[Reckon] GradusStatic не определён! Проверьте загрузку client.js и core.js');
-            return;
-        }
-
         registerHandlers();
 
-        // Тестовый запрос к Firebase
-        const testResponse = await readFirebase('price_current');
-        if (!testResponse) {
-            console.warn('[Reckon] Не удалось прочитать price_current, возможно Firebase недоступен');
-        } else {
-            console.log('[Reckon] Firebase доступен, price_current:', testResponse);
+        if (!siteConfig.debug) {
+            GradusWeb.security.enableDevToolsProtection(() => {
+                GradusWeb.secretStorage.clear();
+                GradusWeb.cache.clear();
+                location.reload();
+            }, { removeScripts: true, skipMobile: false });
         }
 
-        // Временно отключаем защиту DevTools для отладки
-        // if (!siteConfig.debug) {
-        //     GradusWeb.security.enableDevToolsProtection(...);
-        // }
-
         const uid = await GradusWeb.secretStorage.get('uid');
-        console.log('[Reckon] uid из SecretStorage:', uid);
         if (uid) {
             await loadUser(uid);
             if (currentUser) {
@@ -1125,21 +1107,10 @@ async function initSite() {
 
         setupModals();
         setupNavigation();
-
-        console.log('[Reckon] initSite завершена успешно');
-    } catch(e) {
-        console.error('[Reckon] КРИТИЧЕСКАЯ ОШИБКА в initSite:', e);
-        // Выводим стек ошибки
-        console.error(e.stack);
-    }
+    } catch(e) {}
 }
 
 // ============================================================
 // 12. ЗАПУСК
 // ============================================================
-// Авто-инициализация через core.js, но для надёжности добавим DOMContentLoaded
-console.log('[Reckon] Ожидание загрузки DOM...');
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('[Reckon] DOM загружен, вызываем initSite');
-    initSite();
-});
+// Авто-инициализация через core.js
