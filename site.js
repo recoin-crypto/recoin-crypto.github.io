@@ -645,95 +645,208 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ
+// 8. МОДАЛКИ И ФОРМЫ (с поддержкой touch-событий)
 // ============================================================
 function setupModals() {
     try {
-        function openWithCaptcha(id, captchaId) {
-            if (!currentUser) { showAuthModal(); return; }
-            openModal(id);
-            if (captchaId) generateCaptchaImage(captchaId);
-        }
-        document.getElementById('deposit-btn').addEventListener('click', () => openWithCaptcha('deposit-modal', 'deposit-captcha'));
-        document.getElementById('withdraw-btn').addEventListener('click', () => openWithCaptcha('withdraw-modal', 'withdraw-captcha'));
-        document.getElementById('transfer-btn').addEventListener('click', () => openWithCaptcha('transfer-modal', 'transfer-captcha'));
-        document.getElementById('support-btn').addEventListener('click', () => openWithCaptcha('support-modal', 'support-captcha'));
-        document.getElementById('complaint-btn').addEventListener('click', () => openWithCaptcha('complaint-modal', 'complaint-captcha'));
-        document.getElementById('exchange-btn').addEventListener('click', () => openWithCaptcha('exchange-modal', 'exchange-captcha'));
+        // Функция для обработки кликов с поддержкой touch
+        function addClickSupport(element, callback) {
+            if (!element) return;
 
-        document.querySelectorAll('.modal-close').forEach(el => {
-            el.addEventListener('click', () => closeModal(el.closest('.modal')));
-        });
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) closeModal(modal);
+            // Убираем стандартный click, используем touch/click с защитой от дублей
+            let isProcessing = false;
+
+            const handler = function(e) {
+                e.preventDefault();
+                if (isProcessing) return;
+                isProcessing = true;
+
+                // Для touch-событий нужна небольшая задержка, чтобы не было дублей
+                setTimeout(() => {
+                    callback(e);
+                    setTimeout(() => { isProcessing = false; }, 300);
+                }, 50);
+            };
+
+            // Вешаем оба события
+            element.addEventListener('click', handler);
+            element.addEventListener('touchend', handler);
+
+            // Сохраняем ссылку для возможного удаления
+            return handler;
+        }
+
+        // === Открытие модалок с капчей ===
+        function openWithCaptcha(id, captchaId) {
+            if (!currentUser) {
+                showAuthModal();
+                return;
+            }
+            openModal(id);
+            if (captchaId) {
+                // Небольшая задержка для отображения модалки
+                setTimeout(() => generateCaptchaImage(captchaId), 100);
+            }
+        }
+
+        // Вешаем обработчики на кнопки
+        const depositBtn = document.getElementById('deposit-btn');
+        const withdrawBtn = document.getElementById('withdraw-btn');
+        const transferBtn = document.getElementById('transfer-btn');
+        const supportBtn = document.getElementById('support-btn');
+        const complaintBtn = document.getElementById('complaint-btn');
+        const exchangeBtn = document.getElementById('exchange-btn');
+
+        if (depositBtn) addClickSupport(depositBtn, () => openWithCaptcha('deposit-modal', 'deposit-captcha'));
+        if (withdrawBtn) addClickSupport(withdrawBtn, () => openWithCaptcha('withdraw-modal', 'withdraw-captcha'));
+        if (transferBtn) addClickSupport(transferBtn, () => openWithCaptcha('transfer-modal', 'transfer-captcha'));
+        if (supportBtn) addClickSupport(supportBtn, () => openWithCaptcha('support-modal', 'support-captcha'));
+        if (complaintBtn) addClickSupport(complaintBtn, () => openWithCaptcha('complaint-modal', 'complaint-captcha'));
+        if (exchangeBtn) addClickSupport(exchangeBtn, () => openWithCaptcha('exchange-modal', 'exchange-captcha'));
+
+        // === Закрытие модалок ===
+        const closeElements = document.querySelectorAll('.modal-close');
+        closeElements.forEach(el => {
+            addClickSupport(el, function(e) {
+                const modal = this.closest('.modal');
+                if (modal) closeModal(modal);
             });
         });
 
-        document.getElementById('deposit-form').addEventListener('submit', handleDeposit);
-        document.getElementById('withdraw-form').addEventListener('submit', handleWithdraw);
-        document.getElementById('transfer-form').addEventListener('submit', handleTransfer);
-        document.getElementById('support-form').addEventListener('submit', handleSupport);
-        document.getElementById('complaint-form').addEventListener('submit', handleComplaint);
-        document.getElementById('exchange-form').addEventListener('submit', handleExchange);
-        document.getElementById('logout-btn').addEventListener('click', logout);
-
-        document.getElementById('transfer-amount').addEventListener('input', function() {
-            const amount = parseFloat(this.value) || 0;
-            const feePercent = getFeePercent(amount);
-            const fee = amount * feePercent;
-            const total = amount + fee;
-            document.getElementById('transfer-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
-            document.getElementById('transfer-total').textContent = total.toFixed(2) + ' RECKON';
+        // Закрытие по клику вне модалки
+        const modalElements = document.querySelectorAll('.modal');
+        modalElements.forEach(modal => {
+            addClickSupport(modal, function(e) {
+                if (e.target === this) {
+                    closeModal(this);
+                }
+            });
         });
 
-        document.getElementById('exchange-amount').addEventListener('input', function() {
-            const amount = parseFloat(this.value) || 0;
-            let feePercent = getFeePercent(amount);
-            if (feePercent > 0.05) feePercent = 0.05;
-            const fee = amount * feePercent;
-            const total = amount + fee;
-            document.getElementById('exchange-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
-            document.getElementById('exchange-total').textContent = total.toFixed(2);
+        // === Формы ===
+        const depositForm = document.getElementById('deposit-form');
+        const withdrawForm = document.getElementById('withdraw-form');
+        const transferForm = document.getElementById('transfer-form');
+        const supportForm = document.getElementById('support-form');
+        const complaintForm = document.getElementById('complaint-form');
+        const exchangeForm = document.getElementById('exchange-form');
+
+        if (depositForm) depositForm.addEventListener('submit', handleDeposit);
+        if (withdrawForm) withdrawForm.addEventListener('submit', handleWithdraw);
+        if (transferForm) transferForm.addEventListener('submit', handleTransfer);
+        if (supportForm) supportForm.addEventListener('submit', handleSupport);
+        if (complaintForm) complaintForm.addEventListener('submit', handleComplaint);
+        if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
+
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) addClickSupport(logoutBtn, logout);
+
+        // === Расчёт комиссии для перевода ===
+        const transferAmount = document.getElementById('transfer-amount');
+        if (transferAmount) {
+            transferAmount.addEventListener('input', function() {
+                const amount = parseFloat(this.value) || 0;
+                const feePercent = getFeePercent(amount);
+                const fee = amount * feePercent;
+                const total = amount + fee;
+                document.getElementById('transfer-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
+                document.getElementById('transfer-total').textContent = total.toFixed(2) + ' RECKON';
+            });
+        }
+
+        // === Расчёт комиссии для обмена ===
+        const exchangeAmount = document.getElementById('exchange-amount');
+        if (exchangeAmount) {
+            exchangeAmount.addEventListener('input', function() {
+                const amount = parseFloat(this.value) || 0;
+                let feePercent = getFeePercent(amount);
+                if (feePercent > 0.05) feePercent = 0.05;
+                const fee = amount * feePercent;
+                const total = amount + fee;
+                document.getElementById('exchange-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
+                document.getElementById('exchange-total').textContent = total.toFixed(2);
+            });
+        }
+
+        // === Авторизация ===
+        const authForm = document.getElementById('auth-form');
+        const authSwitch = document.getElementById('auth-switch');
+        const showAgreement = document.getElementById('show-agreement-link');
+        const agreementModal = document.getElementById('agreement-modal');
+        const agreementClose = document.getElementById('agreement-close');
+        const agreementCloseBtn = document.getElementById('agreement-close-btn');
+
+        if (authForm) authForm.addEventListener('submit', handleAuthSubmit);
+        if (authSwitch) authSwitch.addEventListener('click', toggleAuthMode);
+        if (showAgreement) {
+            showAgreement.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (agreementModal) agreementModal.classList.add('active');
+            });
+        }
+        if (agreementClose) addClickSupport(agreementClose, function() {
+            if (agreementModal) agreementModal.classList.remove('active');
+        });
+        if (agreementCloseBtn) addClickSupport(agreementCloseBtn, function() {
+            if (agreementModal) agreementModal.classList.remove('active');
         });
 
-        document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
-        document.getElementById('auth-switch').addEventListener('click', toggleAuthMode);
-        document.getElementById('show-agreement-link').addEventListener('click', function(e) {
-            e.preventDefault();
-            document.getElementById('agreement-modal').classList.add('active');
-        });
-        document.getElementById('agreement-close').addEventListener('click', function() {
-            document.getElementById('agreement-modal').classList.remove('active');
-        });
-        document.getElementById('agreement-close-btn').addEventListener('click', function() {
-            document.getElementById('agreement-modal').classList.remove('active');
+        // === Навигация (для мобильных) ===
+        const mobileToggle = document.getElementById('mobile-menu-toggle');
+        if (mobileToggle) {
+            addClickSupport(mobileToggle, function() {
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.toggle('open');
+            });
+        }
+
+        // === Кнопки навигации ===
+        const navLinks = document.querySelectorAll('.nav a[data-page]');
+        navLinks.forEach(link => {
+            addClickSupport(link, function(e) {
+                e.preventDefault();
+                const pageId = this.dataset.page;
+                const requireAuth = this.dataset.requireAuth === 'true';
+                if (requireAuth && !currentUser) {
+                    showAuthModal();
+                    return;
+                }
+
+                const pages = {
+                    'page-home': document.getElementById('page-home'),
+                    'page-cabinet': document.getElementById('page-cabinet'),
+                    'page-mining': document.getElementById('page-mining')
+                };
+
+                Object.values(pages).forEach(p => {
+                    if (p) p.classList.remove('active');
+                });
+                if (pages[pageId]) pages[pageId].classList.add('active');
+
+                navLinks.forEach(l => l.classList.remove('active'));
+                this.classList.add('active');
+
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.remove('open');
+            });
         });
 
-        setupChartControls();
+        // === Кнопки "Узнать больше" и т.п. ===
+        const dataPageLinks = document.querySelectorAll('[data-page]');
+        dataPageLinks.forEach(el => {
+            // Пропускаем уже обработанные навигационные ссылки
+            if (el.tagName === 'A' && el.closest('.nav')) return;
+            addClickSupport(el, function(e) {
+                const pageId = this.dataset.page;
+                const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
+                if (link) link.click();
+            });
+        });
+
+        console.log('[Reckon] Модалки и кнопки настроены с поддержкой touch');
     } catch(e) {
-        console.error('[Reckon] setupModals error:', e);
+        console.error('[Reckon] Ошибка setupModals:', e);
     }
-}
-
-function openModal(id) {
-    document.getElementById(id).classList.add('active');
-}
-function closeModal(modal) {
-    if (modal) modal.classList.remove('active');
-}
-
-function getFeePercent(amount) {
-    if (amount < 5) return 0.10;
-    else if (amount < 30) return 0.05;
-    else if (amount < 100) return 0.02;
-    else return 0.01;
-}
-
-function verifyCaptcha(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container || typeof container.verify !== 'function') return false;
-    return container.verify();
 }
 
 // ============================================================
