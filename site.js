@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия, без логов на экран)
+// site.js — Reckon Coin (финальная версия с поддержкой touch)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -591,10 +591,26 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (только click)
+// 8. МОДАЛКИ И ФОРМЫ (с поддержкой touch)
 // ============================================================
 function setupModals() {
     try {
+        // Вспомогательная функция для поддержки touch на мобильных
+        // (без вывода логов на экран, только консоль)
+        function addTouchSupport(element, callback) {
+            if (!element) return;
+            let processing = false;
+            const handler = function(e) {
+                e.preventDefault();
+                if (processing) return;
+                processing = true;
+                callback(e);
+                setTimeout(() => { processing = false; }, 300);
+            };
+            element.addEventListener('click', handler);
+            element.addEventListener('touchstart', handler, { passive: false });
+        }
+
         function openWithCaptcha(id, captchaId) {
             if (!currentUser) {
                 showAuthModal();
@@ -618,21 +634,21 @@ function setupModals() {
         buttonMap.forEach(function(item) {
             const el = document.getElementById(item.id);
             if (el) {
-                el.addEventListener('click', function(e) {
+                addTouchSupport(el, function() {
                     openWithCaptcha(item.modal, item.captcha);
                 });
             }
         });
 
         document.querySelectorAll('.modal-close').forEach(function(el) {
-            el.addEventListener('click', function(e) {
+            addTouchSupport(el, function(e) {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
         });
 
         document.querySelectorAll('.modal').forEach(function(modal) {
-            modal.addEventListener('click', function(e) {
+            addTouchSupport(modal, function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -655,7 +671,7 @@ function setupModals() {
 
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) {
-            logoutBtn.addEventListener('click', function(e) {
+            addTouchSupport(logoutBtn, function() {
                 logout();
             });
         }
@@ -713,14 +729,14 @@ function setupModals() {
 
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            mobileToggle.addEventListener('click', function() {
+            addTouchSupport(mobileToggle, function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
         }
 
         document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
-            link.addEventListener('click', function(e) {
+            addTouchSupport(link, function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -744,7 +760,7 @@ function setupModals() {
 
         document.querySelectorAll('[data-page]').forEach(function(el) {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            el.addEventListener('click', function(e) {
+            addTouchSupport(el, function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
@@ -975,7 +991,7 @@ async function handleComplaint(e) {
 }
 
 // ============================================================
-// 10. НАВИГАЦИЯ
+// 10. НАВИГАЦИЯ (дублируется, но оставлена для совместимости)
 // ============================================================
 function setupNavigation() {
     try {
