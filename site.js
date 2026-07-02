@@ -1,11 +1,18 @@
 // ============================================================
-// site.js — Reckon Coin (релизная версия с поддержкой touch)
+// site.js — Reckon Coin (финальная версия, без логов на экран)
 // ============================================================
+
+console.log('[Reckon] site.js загружен');
 
 // === ДЕКОДИРУЕМ URL ===
 const encodedUrl = '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155';
 let firebaseDecoded = '';
-try { firebaseDecoded = GradusWeb.decode(encodedUrl); } catch(e) { console.error('Ошибка декодирования URL'); }
+try {
+    firebaseDecoded = GradusWeb.decode(encodedUrl);
+    console.log('[Reckon] Firebase URL декодирован');
+} catch(e) {
+    console.error('[Reckon] Ошибка декодирования URL:', e);
+}
 
 const siteConfig = {
     debug: false,
@@ -22,7 +29,7 @@ let currentPeriod = '1h';
 let allHistoryData = [];
 
 // ============================================================
-// 1. FIREBASE (только чтение, запись только через сервер)
+// 1. FIREBASE
 // ============================================================
 async function readFirebase(path) {
     const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
@@ -30,6 +37,7 @@ async function readFirebase(path) {
         const response = await GradusServer.get(url);
         return response ? JSON.parse(response) : null;
     } catch(e) {
+        console.error('[Reckon] readFirebase ошибка:', e);
         return null;
     }
 }
@@ -40,6 +48,7 @@ async function writeFirebase(path, data) {
         await GradusServer.firebaseSet(url, data);
         return true;
     } catch(e) {
+        console.error('[Reckon] writeFirebase ошибка:', e);
         return false;
     }
 }
@@ -50,6 +59,7 @@ async function pushFirebase(path, data) {
         const response = await GradusServer.post(url, data);
         return response;
     } catch(e) {
+        console.error('[Reckon] pushFirebase ошибка:', e);
         return null;
     }
 }
@@ -194,7 +204,6 @@ async function updateUIElements() {
 
         await updatePriceChange();
 
-        // История транзакций
         const history = await readFirebase('users/' + currentUser.uid + '/transactions');
         let html = '';
         if (history && Object.keys(history).length > 0) {
@@ -237,7 +246,9 @@ async function updateUIElements() {
         if (miningEarnedEl) miningEarnedEl.textContent = stats ? stats.earned.toFixed(2) : '0.00';
         if (commissionPoolEl) commissionPoolEl.textContent = commissionPool ? commissionPool.toFixed(2) : '0.00';
 
-    } catch(e) {}
+    } catch(e) {
+        console.error('[Reckon] Ошибка обновления UI:', e);
+    }
 }
 
 function getTransactionTypeLabel(type) {
@@ -280,6 +291,7 @@ async function updatePriceChange() {
         priceChangeEl.textContent = `${sign} ${Math.abs(change).toFixed(2)}%`;
         priceChangeEl.className = 'price-change ' + (change >= 0 ? 'up' : 'down');
     } catch(e) {
+        console.error('[Reckon] updatePriceChange error:', e);
         priceChangeEl.textContent = '▲ 0.00%';
     }
 }
@@ -291,7 +303,9 @@ function showAuthModal() {
     const modal = document.getElementById('auth-modal');
     if (modal && !modal.classList.contains('active')) modal.classList.add('active');
 }
-function hideAuthModal() { document.getElementById('auth-modal').classList.remove('active'); }
+function hideAuthModal() {
+    document.getElementById('auth-modal').classList.remove('active');
+}
 
 function toggleAuthMode() {
     isLoginMode = !isLoginMode;
@@ -372,14 +386,21 @@ async function registerUser(username, hashedPassword, email, phone) {
     if (allUsers) {
         for (const [uid, data] of Object.entries(allUsers)) {
             if (data.username === username) { alert('Никнейм занят'); return; }
-            if (email && data.email === email) { alert('Email занят'); return; }
-            if (phone && data.phone === phone) { alert('Телефон занят'); return; }
+            if (email && data.email === GradusWeb.encode(email)) { alert('Email занят'); return; }
+            if (phone && data.phone === GradusWeb.encode(phone)) { alert('Телефон занят'); return; }
         }
     }
     const newUid = GradusWeb.generate.uuid();
     const newUser = {
-        username, password: hashedPassword, email: email || '', phone: phone || '',
-        balance_coins: 0, balance_usd: 0, ban: false, moder: false, transactions: {},
+        username: username,
+        password: hashedPassword,
+        email: email ? GradusWeb.encode(email) : '',
+        phone: phone ? GradusWeb.encode(phone) : '',
+        balance_coins: 0,
+        balance_usd: 0,
+        ban: false,
+        moder: false,
+        transactions: {},
         lastPriceChangeDate: 0
     };
     await writeFirebase('users/' + newUid, newUser);
@@ -406,8 +427,13 @@ async function loadUser(uid) {
         showAuthModal();
         return;
     }
+    const decodedEmail = userData.email ? GradusWeb.decode(userData.email) : '';
+    const decodedPhone = userData.phone ? GradusWeb.decode(userData.phone) : '';
     currentUser = {
-        uid, username: userData.username, email: userData.email, phone: userData.phone,
+        uid: uid,
+        username: userData.username,
+        email: decodedEmail,
+        phone: decodedPhone,
         balance_coins: userData.balance_coins || 0,
         balance_usd: userData.balance_usd || 0,
         ban: userData.ban || false,
@@ -470,7 +496,9 @@ async function initChart() {
         });
 
         await updateChartForPeriod('1h');
-    } catch(e) {}
+    } catch(e) {
+        console.error('[Reckon] initChart error:', e);
+    }
 }
 
 async function updateChartForPeriod(period) {
@@ -563,33 +591,22 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (с поддержкой touch)
+// 8. МОДАЛКИ И ФОРМЫ (только click)
 // ============================================================
 function setupModals() {
     try {
-        // Вспомогательная функция для добавления поддержки touch на мобильных устройствах
-        function addTouchSupport(element, callback) {
-            if (!element) return;
-            let processing = false;
-            const handler = function(e) {
-                e.preventDefault();
-                if (processing) return;
-                processing = true;
-                callback(e);
-                setTimeout(() => { processing = false; }, 300);
-            };
-            element.addEventListener('click', handler);
-            element.addEventListener('touchstart', handler, { passive: false });
-        }
-
         function openWithCaptcha(id, captchaId) {
-            if (!currentUser) { showAuthModal(); return; }
+            if (!currentUser) {
+                showAuthModal();
+                return;
+            }
             openModal(id);
-            if (captchaId) generateCaptchaImage(captchaId);
+            if (captchaId) {
+                generateCaptchaImage(captchaId);
+            }
         }
 
-        // Кнопки открытия модалок (используем addTouchSupport)
-        const buttons = [
+        const buttonMap = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
             { id: 'transfer-btn', modal: 'transfer-modal', captcha: 'transfer-captcha' },
@@ -597,33 +614,31 @@ function setupModals() {
             { id: 'complaint-btn', modal: 'complaint-modal', captcha: 'complaint-captcha' },
             { id: 'exchange-btn', modal: 'exchange-modal', captcha: 'exchange-captcha' }
         ];
-        buttons.forEach(function(item) {
+
+        buttonMap.forEach(function(item) {
             const el = document.getElementById(item.id);
             if (el) {
-                addTouchSupport(el, function() {
+                el.addEventListener('click', function(e) {
                     openWithCaptcha(item.modal, item.captcha);
                 });
             }
         });
 
-        // Закрытие модалок (крестики)
         document.querySelectorAll('.modal-close').forEach(function(el) {
-            addTouchSupport(el, function(e) {
+            el.addEventListener('click', function(e) {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
         });
 
-        // Закрытие по клику вне модалки
         document.querySelectorAll('.modal').forEach(function(modal) {
-            addTouchSupport(modal, function(e) {
+            modal.addEventListener('click', function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
             });
         });
 
-        // Обработчики форм (оставляем как есть, они используют submit)
         const depositForm = document.getElementById('deposit-form');
         const withdrawForm = document.getElementById('withdraw-form');
         const transferForm = document.getElementById('transfer-form');
@@ -640,10 +655,11 @@ function setupModals() {
 
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) {
-            addTouchSupport(logoutBtn, logout);
+            logoutBtn.addEventListener('click', function(e) {
+                logout();
+            });
         }
 
-        // Расчёт комиссии для перевода (input)
         const transferAmount = document.getElementById('transfer-amount');
         if (transferAmount) {
             transferAmount.addEventListener('input', function() {
@@ -656,7 +672,6 @@ function setupModals() {
             });
         }
 
-        // Расчёт комиссии для обмена
         const exchangeAmount = document.getElementById('exchange-amount');
         if (exchangeAmount) {
             exchangeAmount.addEventListener('input', function() {
@@ -670,7 +685,6 @@ function setupModals() {
             });
         }
 
-        // Авторизация
         const authForm = document.getElementById('auth-form');
         const authSwitch = document.getElementById('auth-switch');
         const showAgreement = document.getElementById('show-agreement-link');
@@ -697,18 +711,17 @@ function setupModals() {
             });
         }
 
-        // === Навигация (с поддержкой touch) ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            addTouchSupport(mobileToggle, function() {
+            mobileToggle.addEventListener('click', function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
         }
 
-        // Кнопки навигации
         document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
-            addTouchSupport(link, function(e) {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
                 if (requireAuth && !currentUser) {
@@ -729,39 +742,25 @@ function setupModals() {
             });
         });
 
-        // Кнопки "Узнать больше" и прочие data-page
         document.querySelectorAll('[data-page]').forEach(function(el) {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            addTouchSupport(el, function(e) {
+            el.addEventListener('click', function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
             });
         });
 
-        // Кнопки графика (добавляем touch)
-        document.querySelectorAll('.chart-btn').forEach(function(btn) {
-            addTouchSupport(btn, function(e) {
-                const period = this.dataset.period;
-                if (!period) return;
-                document.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                currentPeriod = period;
-                updateChartForPeriod(period);
-            });
-        });
-
-        // Для кнопок графика также оставляем старые обработчики (уже добавлены в setupChartControls)
-        // Но чтобы не было дублирования, можно закомментировать setupChartControls, но она уже вызывается.
-        // Мы просто добавили touch-обработчики поверх.
+        setupChartControls();
 
     } catch(e) {
-        console.error('Ошибка настройки модалок:', e);
+        console.error('[Reckon] Ошибка настройки модалок:', e);
     }
 }
 
 function openModal(id) {
-    document.getElementById(id).classList.add('active');
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.add('active');
 }
 function closeModal(modal) {
     if (modal) modal.classList.remove('active');
@@ -781,7 +780,7 @@ function verifyCaptcha(containerId) {
 }
 
 // ============================================================
-// 9. ОБРАБОТЧИКИ ФОРМ
+// 9. ОБРАБОТЧИКИ ФОРМ (полные)
 // ============================================================
 async function handleDeposit(e) {
     e.preventDefault();
@@ -802,6 +801,10 @@ async function handleDeposit(e) {
 async function handleWithdraw(e) {
     e.preventDefault();
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
+    if (!currentUser.email && !currentUser.phone) {
+        alert('Для вывода необходимо привязать email или телефон');
+        return;
+    }
     if (!verifyCaptcha('withdraw-captcha')) { alert('Неверная капча'); return; }
     const amount = parseFloat(document.getElementById('withdraw-amount').value);
     const address = document.getElementById('withdraw-address').value.trim();
@@ -928,10 +931,11 @@ async function handleExchange(e) {
         await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalanceUsd);
         await writeFirebase('users/' + currentUser.uid + '/balance_coins', newBalanceCoins);
 
+        const feeInCoins = fee / currentPrice;
         const pool = await readFirebase('commission_pool') || 0;
-        await writeFirebase('commission_pool', pool + (fee * 0.85));
+        await writeFirebase('commission_pool', pool + (feeInCoins * 0.85));
         const freeSupply = await readFirebase('total_supply') || 0;
-        await writeFirebase('total_supply', Math.max(0, freeSupply - (fee * 0.15)));
+        await writeFirebase('total_supply', Math.max(0, freeSupply - (feeInCoins * 0.15)));
 
         await pushFirebase('users/' + currentUser.uid + '/transactions', { type: 'exchange_usd_to_coins', amount: amount, currency: 'USD', coins: coinsAmount, fee, timestamp: Date.now() });
         currentUser.balance_usd = newBalanceUsd;
@@ -1043,10 +1047,14 @@ async function initSite() {
 
         setupModals();
         setupNavigation();
-    } catch(e) {}
+    } catch(e) {
+        console.error('[Reckon] КРИТИЧЕСКАЯ ОШИБКА в initSite:', e);
+    }
 }
 
 // ============================================================
 // 12. ЗАПУСК
 // ============================================================
-// Авто-инициализация через core.js
+document.addEventListener('DOMContentLoaded', function() {
+    initSite();
+});
