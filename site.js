@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия с исправленной мобильной кнопкой меню)
+// site.js — Reckon Coin (финальная версия, без дублирования обработчиков)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -591,11 +591,11 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (с поддержкой touch)
+// 8. МОДАЛКИ И ФОРМЫ (вся логика в одном месте)
 // ============================================================
 function setupModals() {
     try {
-        // Вспомогательная функция для поддержки touch на мобильных
+        // Вспомогательная функция для поддержки touch (без конфликтов)
         function addTouchSupport(element, callback) {
             if (!element) return;
             let processing = false;
@@ -621,6 +621,7 @@ function setupModals() {
             }
         }
 
+        // 1. Кнопки открытия модалок
         const buttonMap = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
@@ -639,6 +640,7 @@ function setupModals() {
             }
         });
 
+        // 2. Закрытие модалок (крестики)
         document.querySelectorAll('.modal-close').forEach(function(el) {
             addTouchSupport(el, function(e) {
                 const modal = this.closest('.modal');
@@ -646,6 +648,7 @@ function setupModals() {
             });
         });
 
+        // 3. Закрытие по клику вне модалки
         document.querySelectorAll('.modal').forEach(function(modal) {
             addTouchSupport(modal, function(e) {
                 if (e.target === this) {
@@ -654,6 +657,7 @@ function setupModals() {
             });
         });
 
+        // 4. Обработчики форм
         const depositForm = document.getElementById('deposit-form');
         const withdrawForm = document.getElementById('withdraw-form');
         const transferForm = document.getElementById('transfer-form');
@@ -675,6 +679,7 @@ function setupModals() {
             });
         }
 
+        // 5. Расчёт комиссии для перевода
         const transferAmount = document.getElementById('transfer-amount');
         if (transferAmount) {
             transferAmount.addEventListener('input', function() {
@@ -687,6 +692,7 @@ function setupModals() {
             });
         }
 
+        // 6. Расчёт комиссии для обмена
         const exchangeAmount = document.getElementById('exchange-amount');
         if (exchangeAmount) {
             exchangeAmount.addEventListener('input', function() {
@@ -700,6 +706,7 @@ function setupModals() {
             });
         }
 
+        // 7. Авторизация
         const authForm = document.getElementById('auth-form');
         const authSwitch = document.getElementById('auth-switch');
         const showAgreement = document.getElementById('show-agreement-link');
@@ -726,7 +733,7 @@ function setupModals() {
             });
         }
 
-        // ===== МОБИЛЬНОЕ МЕНЮ (только здесь, без дублирования в setupNavigation) =====
+        // 8. Мобильное меню (гамбургер)
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
             addTouchSupport(mobileToggle, function() {
@@ -735,7 +742,7 @@ function setupModals() {
             });
         }
 
-        // Навигационные ссылки (с поддержкой touch)
+        // 9. Навигационные ссылки (вкладки: Главная, Кабинет, Майнинг)
         document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
             addTouchSupport(link, function(e) {
                 e.preventDefault();
@@ -759,8 +766,9 @@ function setupModals() {
             });
         });
 
-        // Кнопки "Узнать больше" и прочие data-page
+        // 10. Кнопки "Узнать больше" и другие элементы с data-page (кроме навигации)
         document.querySelectorAll('[data-page]').forEach(function(el) {
+            // Пропускаем ссылки из навигации, чтобы избежать дублирования обработчиков
             if (el.tagName === 'A' && el.closest('.nav')) return;
             addTouchSupport(el, function(e) {
                 const pageId = this.dataset.page;
@@ -769,6 +777,7 @@ function setupModals() {
             });
         });
 
+        // 11. Кнопки графика (переключение периодов)
         setupChartControls();
 
     } catch(e) {
@@ -993,44 +1002,12 @@ async function handleComplaint(e) {
 }
 
 // ============================================================
-// 10. НАВИГАЦИЯ (без дублирования обработчика для mobile-menu-toggle)
+// 10. НАВИГАЦИЯ (пустая, вся логика в setupModals)
 // ============================================================
 function setupNavigation() {
-    try {
-        // Навигационные ссылки (уже обработаны в setupModals с поддержкой touch, поэтому здесь дублируем только для совместимости)
-        // Но оставляем только те, которые не конфликтуют.
-        // ВАЖНО: удаляем обработчик для mobile-menu-toggle, чтобы избежать конфликта с setupModals.
-        const navLinks = document.querySelectorAll('.nav a[data-page]');
-        const pages = {
-            'page-home': document.getElementById('page-home'),
-            'page-cabinet': document.getElementById('page-cabinet'),
-            'page-mining': document.getElementById('page-mining')
-        };
-        navLinks.forEach(link => {
-            link.addEventListener('click', function(e) {
-                // Не дублируем, если уже есть обработчик в setupModals?
-                // Но здесь просто добавим, чтобы на случай, если setupModals не сработает.
-                e.preventDefault();
-                const pageId = this.dataset.page;
-                const requireAuth = this.dataset.requireAuth === 'true';
-                if (requireAuth && !currentUser) { showAuthModal(); return; }
-                Object.values(pages).forEach(p => p.classList.remove('active'));
-                if (pages[pageId]) pages[pageId].classList.add('active');
-                navLinks.forEach(l => l.classList.remove('active'));
-                this.classList.add('active');
-                const nav = document.querySelector('.nav');
-                if (nav) nav.classList.remove('open');
-            });
-        });
-        document.querySelectorAll('[data-page]').forEach(el => {
-            el.addEventListener('click', function(e) {
-                const pageId = this.dataset.page;
-                const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
-                if (link) link.click();
-            });
-        });
-        // НЕ ДОБАВЛЯЕМ ОБРАБОТЧИК ДЛЯ MOBILE-TOGGLE ЗДЕСЬ, ЧТОБЫ НЕ БЫЛО КОНФЛИКТА
-    } catch(e) {}
+    // Вся логика навигации перенесена в setupModals для избежания дублирования.
+    // Этот метод оставлен пустым, чтобы не нарушать вызов в initSite.
+    console.log('[Reckon] setupNavigation вызвана (пустая)');
 }
 
 // ============================================================
@@ -1068,7 +1045,7 @@ async function initSite() {
         }
 
         setupModals();
-        setupNavigation();
+        setupNavigation(); // теперь пустая
     } catch(e) {
         console.error('[Reckon] КРИТИЧЕСКАЯ ОШИБКА в initSite:', e);
     }
