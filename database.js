@@ -1,16 +1,18 @@
-// database.js – Gradus Static.JS Database v2.4
+// database.js – Gradus Static.JS Database v2.5.1
 const GradusDB = (() => {
   const storage = window.localStorage;
   let _data = {};
   let _loaded = false;
   let _config = {};
+  let _dbCache = {};
 
   async function init(config) {
-    _config = config || {};
+    _config = config || {}; // защита от null/undefined
     _data = {};
 
-    if (!_config.dbFile) {
-      if (_config.debug) console.warn('[DB] dbFile не указан, используется пустая БД');
+    // Если dbFile не указан, null, undefined или пустая строка — работаем без файла
+    if (!_config.dbFile || _config.dbFile === '') {
+      if (_config.debug) console.warn('[DB] dbFile не указан или пуст, используется пустая БД');
       _loaded = true;
       return;
     }
@@ -35,21 +37,25 @@ const GradusDB = (() => {
         Object.assign(_data, localData);
       } catch (e) {}
     }
+    _dbCache = Object.assign({}, _data);
     _loaded = true;
   }
 
   async function get(key) {
     if (!_loaded) return null;
+    if (_dbCache.hasOwnProperty(key)) return _dbCache[key];
     return _data[key] ?? null;
   }
 
   async function set(key, value) {
     _data[key] = value;
+    _dbCache[key] = value;
     storage.setItem('gw_db', JSON.stringify(_data));
   }
 
   async function remove(key) {
     delete _data[key];
+    delete _dbCache[key];
     storage.setItem('gw_db', JSON.stringify(_data));
   }
 
