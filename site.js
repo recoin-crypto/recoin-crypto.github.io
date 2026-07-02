@@ -645,85 +645,84 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (с поддержкой touch-событий)
+// 8. МОДАЛКИ И ФОРМЫ (исправленная версия для мобильных)
 // ============================================================
 function setupModals() {
+    console.log('[Reckon] Настройка модалок (упрощённая для мобильных)');
     try {
-        // Функция для обработки кликов с поддержкой touch
-        function addClickSupport(element, callback) {
-            if (!element) return;
-
-            // Убираем стандартный click, используем touch/click с защитой от дублей
-            let isProcessing = false;
-
-            const handler = function(e) {
-                e.preventDefault();
-                if (isProcessing) return;
-                isProcessing = true;
-
-                // Для touch-событий нужна небольшая задержка, чтобы не было дублей
-                setTimeout(() => {
-                    callback(e);
-                    setTimeout(() => { isProcessing = false; }, 300);
-                }, 50);
-            };
-
-            // Вешаем оба события
-            element.addEventListener('click', handler);
-            element.addEventListener('touchend', handler);
-
-            // Сохраняем ссылку для возможного удаления
-            return handler;
-        }
-
-        // === Открытие модалок с капчей ===
-        function openWithCaptcha(id, captchaId) {
+        // === Вспомогательная функция открытия модалки ===
+        function openModalWithCaptcha(id, captchaId) {
             if (!currentUser) {
                 showAuthModal();
                 return;
             }
-            openModal(id);
-            if (captchaId) {
-                // Небольшая задержка для отображения модалки
-                setTimeout(() => generateCaptchaImage(captchaId), 100);
+            const modal = document.getElementById(id);
+            if (modal) {
+                modal.classList.add('active');
+                if (captchaId) {
+                    setTimeout(() => generateCaptchaImage(captchaId), 50);
+                }
             }
         }
 
-        // Вешаем обработчики на кнопки
-        const depositBtn = document.getElementById('deposit-btn');
-        const withdrawBtn = document.getElementById('withdraw-btn');
-        const transferBtn = document.getElementById('transfer-btn');
-        const supportBtn = document.getElementById('support-btn');
-        const complaintBtn = document.getElementById('complaint-btn');
-        const exchangeBtn = document.getElementById('exchange-btn');
+        // === Назначаем обработчики на кнопки (обычный click + touchstart) ===
+        const buttonMap = [
+            { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
+            { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
+            { id: 'transfer-btn', modal: 'transfer-modal', captcha: 'transfer-captcha' },
+            { id: 'support-btn', modal: 'support-modal', captcha: 'support-captcha' },
+            { id: 'complaint-btn', modal: 'complaint-modal', captcha: 'complaint-captcha' },
+            { id: 'exchange-btn', modal: 'exchange-modal', captcha: 'exchange-captcha' }
+        ];
 
-        if (depositBtn) addClickSupport(depositBtn, () => openWithCaptcha('deposit-modal', 'deposit-captcha'));
-        if (withdrawBtn) addClickSupport(withdrawBtn, () => openWithCaptcha('withdraw-modal', 'withdraw-captcha'));
-        if (transferBtn) addClickSupport(transferBtn, () => openWithCaptcha('transfer-modal', 'transfer-captcha'));
-        if (supportBtn) addClickSupport(supportBtn, () => openWithCaptcha('support-modal', 'support-captcha'));
-        if (complaintBtn) addClickSupport(complaintBtn, () => openWithCaptcha('complaint-modal', 'complaint-captcha'));
-        if (exchangeBtn) addClickSupport(exchangeBtn, () => openWithCaptcha('exchange-modal', 'exchange-captcha'));
+        buttonMap.forEach(function(item) {
+            const el = document.getElementById(item.id);
+            if (!el) return;
+
+            // Обработчик для клика (десктоп и мобильные с задержкой)
+            el.addEventListener('click', function(e) {
+                openModalWithCaptcha(item.modal, item.captcha);
+            });
+
+            // Для мобильных используем touchstart для мгновенной реакции
+            el.addEventListener('touchstart', function(e) {
+                // Предотвращаем двойное срабатывание (если click уже будет)
+                if (this._touchHandled) return;
+                this._touchHandled = true;
+                openModalWithCaptcha(item.modal, item.captcha);
+                setTimeout(() => { this._touchHandled = false; }, 500);
+            }, { passive: true });
+        });
 
         // === Закрытие модалок ===
-        const closeElements = document.querySelectorAll('.modal-close');
-        closeElements.forEach(el => {
-            addClickSupport(el, function(e) {
+        document.querySelectorAll('.modal-close').forEach(function(el) {
+            el.addEventListener('click', function(e) {
                 const modal = this.closest('.modal');
-                if (modal) closeModal(modal);
+                if (modal) modal.classList.remove('active');
             });
+            el.addEventListener('touchstart', function(e) {
+                const modal = this.closest('.modal');
+                if (modal) modal.classList.remove('active');
+                e.preventDefault();
+            }, { passive: false });
         });
 
-        // Закрытие по клику вне модалки
-        const modalElements = document.querySelectorAll('.modal');
-        modalElements.forEach(modal => {
-            addClickSupport(modal, function(e) {
+        // === Закрытие по клику вне модалки ===
+        document.querySelectorAll('.modal').forEach(function(modal) {
+            modal.addEventListener('click', function(e) {
                 if (e.target === this) {
-                    closeModal(this);
+                    this.classList.remove('active');
                 }
             });
+            modal.addEventListener('touchstart', function(e) {
+                if (e.target === this) {
+                    this.classList.remove('active');
+                    e.preventDefault();
+                }
+            }, { passive: false });
         });
 
-        // === Формы ===
+        // === Обработчики форм (без изменений) ===
         const depositForm = document.getElementById('deposit-form');
         const withdrawForm = document.getElementById('withdraw-form');
         const transferForm = document.getElementById('transfer-form');
@@ -739,36 +738,17 @@ function setupModals() {
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) addClickSupport(logoutBtn, logout);
-
-        // === Расчёт комиссии для перевода ===
-        const transferAmount = document.getElementById('transfer-amount');
-        if (transferAmount) {
-            transferAmount.addEventListener('input', function() {
-                const amount = parseFloat(this.value) || 0;
-                const feePercent = getFeePercent(amount);
-                const fee = amount * feePercent;
-                const total = amount + fee;
-                document.getElementById('transfer-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
-                document.getElementById('transfer-total').textContent = total.toFixed(2) + ' RECKON';
-            });
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', logout);
+            logoutBtn.addEventListener('touchstart', function(e) {
+                if (this._touchHandled) return;
+                this._touchHandled = true;
+                logout();
+                setTimeout(() => { this._touchHandled = false; }, 500);
+            }, { passive: true });
         }
 
-        // === Расчёт комиссии для обмена ===
-        const exchangeAmount = document.getElementById('exchange-amount');
-        if (exchangeAmount) {
-            exchangeAmount.addEventListener('input', function() {
-                const amount = parseFloat(this.value) || 0;
-                let feePercent = getFeePercent(amount);
-                if (feePercent > 0.05) feePercent = 0.05;
-                const fee = amount * feePercent;
-                const total = amount + fee;
-                document.getElementById('exchange-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
-                document.getElementById('exchange-total').textContent = total.toFixed(2);
-            });
-        }
-
-        // === Авторизация ===
+        // === Авторизация (без изменений) ===
         const authForm = document.getElementById('auth-form');
         const authSwitch = document.getElementById('auth-switch');
         const showAgreement = document.getElementById('show-agreement-link');
@@ -784,26 +764,34 @@ function setupModals() {
                 if (agreementModal) agreementModal.classList.add('active');
             });
         }
-        if (agreementClose) addClickSupport(agreementClose, function() {
-            if (agreementModal) agreementModal.classList.remove('active');
-        });
-        if (agreementCloseBtn) addClickSupport(agreementCloseBtn, function() {
-            if (agreementModal) agreementModal.classList.remove('active');
-        });
-
-        // === Навигация (для мобильных) ===
-        const mobileToggle = document.getElementById('mobile-menu-toggle');
-        if (mobileToggle) {
-            addClickSupport(mobileToggle, function() {
-                const nav = document.querySelector('.nav');
-                if (nav) nav.classList.toggle('open');
+        if (agreementClose) {
+            agreementClose.addEventListener('click', function() {
+                if (agreementModal) agreementModal.classList.remove('active');
+            });
+        }
+        if (agreementCloseBtn) {
+            agreementCloseBtn.addEventListener('click', function() {
+                if (agreementModal) agreementModal.classList.remove('active');
             });
         }
 
+        // === Навигация (мобильное меню) ===
+        const mobileToggle = document.getElementById('mobile-menu-toggle');
+        if (mobileToggle) {
+            mobileToggle.addEventListener('click', function() {
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.toggle('open');
+            });
+            mobileToggle.addEventListener('touchstart', function(e) {
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.toggle('open');
+                e.preventDefault();
+            }, { passive: false });
+        }
+
         // === Кнопки навигации ===
-        const navLinks = document.querySelectorAll('.nav a[data-page]');
-        navLinks.forEach(link => {
-            addClickSupport(link, function(e) {
+        document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
+            link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -811,41 +799,38 @@ function setupModals() {
                     showAuthModal();
                     return;
                 }
-
                 const pages = {
                     'page-home': document.getElementById('page-home'),
                     'page-cabinet': document.getElementById('page-cabinet'),
                     'page-mining': document.getElementById('page-mining')
                 };
-
-                Object.values(pages).forEach(p => {
-                    if (p) p.classList.remove('active');
-                });
+                Object.values(pages).forEach(p => { if (p) p.classList.remove('active'); });
                 if (pages[pageId]) pages[pageId].classList.add('active');
-
-                navLinks.forEach(l => l.classList.remove('active'));
+                document.querySelectorAll('.nav a[data-page]').forEach(l => l.classList.remove('active'));
                 this.classList.add('active');
-
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.remove('open');
             });
+            link.addEventListener('touchstart', function(e) {
+                // Дублируем для мобильных
+                this.click();
+                e.preventDefault();
+            }, { passive: false });
         });
 
-        // === Кнопки "Узнать больше" и т.п. ===
-        const dataPageLinks = document.querySelectorAll('[data-page]');
-        dataPageLinks.forEach(el => {
-            // Пропускаем уже обработанные навигационные ссылки
+        // === Кнопки "Узнать больше" ===
+        document.querySelectorAll('[data-page]').forEach(function(el) {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            addClickSupport(el, function(e) {
+            el.addEventListener('click', function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
             });
         });
 
-        console.log('[Reckon] Модалки и кнопки настроены с поддержкой touch');
+        console.log('[Reckon] Модалки и кнопки настроены для мобильных');
     } catch(e) {
-        console.error('[Reckon] Ошибка setupModals:', e);
+        console.error('[Reckon] Ошибка настройки модалок:', e);
     }
 }
 
