@@ -802,6 +802,7 @@ async function handleExchange(e) {
     const currentPrice = priceData ? priceData.price : 0.01;
 
     if (direction === 'coins_to_usd') {
+        // Продажа крипты → цена растёт, комиссия в монетах
         if (total > currentUser.balance_coins) { alert('Недостаточно монет с учётом комиссии'); return; }
         const usdAmount = amount * currentPrice;
         const changeAmount = usdAmount * 0.01;
@@ -812,6 +813,7 @@ async function handleExchange(e) {
         await writeFirebase('users/' + currentUser.uid + '/balance_coins', newBalanceCoins);
         await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalanceUsd);
 
+        // Комиссия в монетах → добавляем в пул (85%)
         const pool = await readFirebase('commission_pool') || 0;
         await writeFirebase('commission_pool', pool + (fee * 0.85));
         const freeSupply = await readFirebase('total_supply') || 0;
@@ -823,6 +825,7 @@ async function handleExchange(e) {
         alert(`Продажа выполнена! Получено $${usdAmount.toFixed(2)}`);
 
     } else { // usd_to_coins
+        // Покупка крипты → цена падает, комиссия в USD
         if (total > currentUser.balance_usd) { alert('Недостаточно USD с учётом комиссии'); return; }
         const coinsAmount = amount / currentPrice;
         const changeAmount = -amount * 0.01;
@@ -833,10 +836,13 @@ async function handleExchange(e) {
         await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalanceUsd);
         await writeFirebase('users/' + currentUser.uid + '/balance_coins', newBalanceCoins);
 
+        // Комиссия в USD → переводим в монеты и добавляем в пул (85%)
+        const feeInCoins = fee / currentPrice;
         const pool = await readFirebase('commission_pool') || 0;
-        await writeFirebase('commission_pool', pool + (fee * 0.85));
+        await writeFirebase('commission_pool', pool + (feeInCoins * 0.85));
+        // Сжигаем 15% от комиссии в монетах
         const freeSupply = await readFirebase('total_supply') || 0;
-        await writeFirebase('total_supply', Math.max(0, freeSupply - (fee * 0.15)));
+        await writeFirebase('total_supply', Math.max(0, freeSupply - (feeInCoins * 0.15)));
 
         await pushFirebase('users/' + currentUser.uid + '/transactions', { type: 'exchange_usd_to_coins', amount: amount, currency: 'USD', coins: coinsAmount, fee, timestamp: Date.now() });
         currentUser.balance_usd = newBalanceUsd;
