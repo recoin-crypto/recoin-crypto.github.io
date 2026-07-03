@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия, без дублирования обработчиков)
+// site.js — Reckon Coin (исправленная версия)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -65,13 +65,17 @@ async function pushFirebase(path, data) {
 }
 
 // ============================================================
-// 2. ОБРАБОТЧИКИ GRADUS
+// 2. ОБРАБОТЧИКИ GRADUS (безопасно)
 // ============================================================
 function registerHandlers() {
-    GradusStatic.registerHandler('get_price', async () => {
-        const d = await readFirebase('price_current');
-        return d && d.price ? '$' + d.price.toFixed(4) : '$0.0000';
-    });
+    try {
+        GradusStatic.registerHandler('get_price', async () => {
+            const d = await readFirebase('price_current');
+            return d && d.price ? '$' + d.price.toFixed(4) : '$0.0000';
+        });
+    } catch (e) {
+        console.warn('[Reckon] registerHandlers не удалось (GradusStatic может отсутствовать):', e);
+    }
 }
 
 // ============================================================
@@ -304,7 +308,8 @@ function showAuthModal() {
     if (modal && !modal.classList.contains('active')) modal.classList.add('active');
 }
 function hideAuthModal() {
-    document.getElementById('auth-modal').classList.remove('active');
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) authModal.classList.remove('active');
 }
 
 function toggleAuthMode() {
@@ -315,18 +320,20 @@ function toggleAuthMode() {
     const repeatGroup = document.getElementById('password-repeat-group');
     const pwdRepeat = document.getElementById('auth-password-repeat');
     if (isLoginMode) {
-        title.textContent = 'Вход';
-        submitBtn.textContent = 'Войти';
-        switchBtn.textContent = 'Переключиться на регистрацию';
-        repeatGroup.style.display = 'none';
-        pwdRepeat.removeAttribute('required');
-        pwdRepeat.value = '';
+        if (title) title.textContent = 'Вход';
+        if (submitBtn) submitBtn.textContent = 'Войти';
+        if (switchBtn) switchBtn.textContent = 'Переключиться на регистрацию';
+        if (repeatGroup) repeatGroup.style.display = 'none';
+        if (pwdRepeat) {
+            pwdRepeat.removeAttribute('required');
+            pwdRepeat.value = '';
+        }
     } else {
-        title.textContent = 'Регистрация';
-        submitBtn.textContent = 'Зарегистрироваться';
-        switchBtn.textContent = 'Переключиться на вход';
-        repeatGroup.style.display = 'block';
-        pwdRepeat.setAttribute('required', '');
+        if (title) title.textContent = 'Регистрация';
+        if (submitBtn) submitBtn.textContent = 'Зарегистрироваться';
+        if (switchBtn) switchBtn.textContent = 'Переключиться на вход';
+        if (repeatGroup) repeatGroup.style.display = 'block';
+        if (pwdRepeat) pwdRepeat.setAttribute('required', '');
     }
 }
 
@@ -334,19 +341,20 @@ async function handleAuthSubmit(e) {
     e.preventDefault();
     if (isSubmitting) return;
     isSubmitting = true;
-    document.getElementById('auth-submit').disabled = true;
+    const submitBtn = document.getElementById('auth-submit');
+    if (submitBtn) submitBtn.disabled = true;
 
-    const username = document.getElementById('auth-username').value.trim();
-    const password = document.getElementById('auth-password').value;
-    const pwdRepeat = document.getElementById('auth-password-repeat').value;
-    const email = document.getElementById('auth-email').value.trim();
-    const phone = document.getElementById('auth-phone').value.trim();
-    const agree = document.getElementById('auth-agree').checked;
+    const username = document.getElementById('auth-username')?.value.trim();
+    const password = document.getElementById('auth-password')?.value;
+    const pwdRepeat = document.getElementById('auth-password-repeat')?.value;
+    const email = document.getElementById('auth-email')?.value.trim();
+    const phone = document.getElementById('auth-phone')?.value.trim();
+    const agree = document.getElementById('auth-agree')?.checked;
 
-    if (!agree) { alert('Примите соглашение'); isSubmitting = false; document.getElementById('auth-submit').disabled = false; return; }
-    if (!username || username.length < 3) { alert('Никнейм >=3 символов'); isSubmitting = false; document.getElementById('auth-submit').disabled = false; return; }
-    if (!password || password.length < 4) { alert('Пароль >=4 символов'); isSubmitting = false; document.getElementById('auth-submit').disabled = false; return; }
-    if (!isLoginMode && password !== pwdRepeat) { alert('Пароли не совпадают'); isSubmitting = false; document.getElementById('auth-submit').disabled = false; return; }
+    if (!agree) { alert('Примите соглашение'); isSubmitting = false; if (submitBtn) submitBtn.disabled = false; return; }
+    if (!username || username.length < 3) { alert('Никнейм >=3 символов'); isSubmitting = false; if (submitBtn) submitBtn.disabled = false; return; }
+    if (!password || password.length < 4) { alert('Пароль >=4 символов'); isSubmitting = false; if (submitBtn) submitBtn.disabled = false; return; }
+    if (!isLoginMode && password !== pwdRepeat) { alert('Пароли не совпадают'); isSubmitting = false; if (submitBtn) submitBtn.disabled = false; return; }
 
     const hashedPassword = GradusWeb.encode(password);
 
@@ -357,7 +365,7 @@ async function handleAuthSubmit(e) {
     }
 
     isSubmitting = false;
-    document.getElementById('auth-submit').disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
 }
 
 async function loginUser(username, hashedPassword) {
@@ -442,13 +450,15 @@ async function loadUser(uid) {
         lastPriceChangeDate: userData.lastPriceChangeDate || 0
     };
     await GradusWeb.secretStorage.set('uid', uid);
-    document.getElementById('logout-btn').style.display = 'inline-block';
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.style.display = 'inline-block';
 }
 
 async function logout() {
     await GradusWeb.secretStorage.remove('uid');
     currentUser = null;
-    document.getElementById('logout-btn').style.display = 'none';
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.style.display = 'none';
     if (updateInterval) clearInterval(updateInterval);
     updateInterval = null;
     await updateUIElements();
@@ -460,7 +470,9 @@ async function logout() {
 // ============================================================
 async function initChart() {
     try {
-        const ctx = document.getElementById('priceChart').getContext('2d');
+        const canvas = document.getElementById('priceChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
         const history = await readFirebase('price_history');
         allHistoryData = [];
         if (history) {
@@ -591,25 +603,11 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (вся логика в одном месте)
+// 8. МОДАЛКИ И ФОРМЫ (без addTouchSupport)
 // ============================================================
 function setupModals() {
     try {
-        // Вспомогательная функция для поддержки touch (без конфликтов)
-        function addTouchSupport(element, callback) {
-            if (!element) return;
-            let processing = false;
-            const handler = function(e) {
-                e.preventDefault();
-                if (processing) return;
-                processing = true;
-                callback(e);
-                setTimeout(() => { processing = false; }, 300);
-            };
-            element.addEventListener('click', handler);
-            element.addEventListener('touchstart', handler, { passive: false });
-        }
-
+        // Вспомогательная функция открытия с капчей
         function openWithCaptcha(id, captchaId) {
             if (!currentUser) {
                 showAuthModal();
@@ -621,7 +619,7 @@ function setupModals() {
             }
         }
 
-        // 1. Кнопки открытия модалок
+        // 1. Кнопки открытия модалок (простой click)
         const buttonMap = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
@@ -631,26 +629,26 @@ function setupModals() {
             { id: 'exchange-btn', modal: 'exchange-modal', captcha: 'exchange-captcha' }
         ];
 
-        buttonMap.forEach(function(item) {
+        buttonMap.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
-                addTouchSupport(el, function() {
+                el.addEventListener('click', () => {
                     openWithCaptcha(item.modal, item.captcha);
                 });
             }
         });
 
         // 2. Закрытие модалок (крестики)
-        document.querySelectorAll('.modal-close').forEach(function(el) {
-            addTouchSupport(el, function(e) {
+        document.querySelectorAll('.modal-close').forEach(el => {
+            el.addEventListener('click', function() {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
         });
 
         // 3. Закрытие по клику вне модалки
-        document.querySelectorAll('.modal').forEach(function(modal) {
-            addTouchSupport(modal, function(e) {
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -672,11 +670,10 @@ function setupModals() {
         if (complaintForm) complaintForm.addEventListener('submit', handleComplaint);
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
+        // Кнопка выхода
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) {
-            addTouchSupport(logoutBtn, function() {
-                logout();
-            });
+            logoutBtn.addEventListener('click', logout);
         }
 
         // 5. Расчёт комиссии для перевода
@@ -687,8 +684,10 @@ function setupModals() {
                 const feePercent = getFeePercent(amount);
                 const fee = amount * feePercent;
                 const total = amount + fee;
-                document.getElementById('transfer-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
-                document.getElementById('transfer-total').textContent = total.toFixed(2) + ' RECKON';
+                const feeEl = document.getElementById('transfer-fee');
+                const totalEl = document.getElementById('transfer-total');
+                if (feeEl) feeEl.textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)} RECKON)`;
+                if (totalEl) totalEl.textContent = total.toFixed(2) + ' RECKON';
             });
         }
 
@@ -701,8 +700,10 @@ function setupModals() {
                 if (feePercent > 0.05) feePercent = 0.05;
                 const fee = amount * feePercent;
                 const total = amount + fee;
-                document.getElementById('exchange-fee').textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
-                document.getElementById('exchange-total').textContent = total.toFixed(2);
+                const feeEl = document.getElementById('exchange-fee');
+                const totalEl = document.getElementById('exchange-total');
+                if (feeEl) feeEl.textContent = `${(feePercent*100).toFixed(0)}% (${fee.toFixed(2)})`;
+                if (totalEl) totalEl.textContent = total.toFixed(2);
             });
         }
 
@@ -736,15 +737,15 @@ function setupModals() {
         // 8. Мобильное меню (гамбургер)
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            addTouchSupport(mobileToggle, function() {
+            mobileToggle.addEventListener('click', function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
         }
 
         // 9. Навигационные ссылки (вкладки: Главная, Кабинет, Майнинг)
-        document.querySelectorAll('.nav a[data-page]').forEach(function(link) {
-            addTouchSupport(link, function(e) {
+        document.querySelectorAll('.nav a[data-page]').forEach(link => {
+            link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -767,17 +768,16 @@ function setupModals() {
         });
 
         // 10. Кнопки "Узнать больше" и другие элементы с data-page (кроме навигации)
-        document.querySelectorAll('[data-page]').forEach(function(el) {
-            // Пропускаем ссылки из навигации, чтобы избежать дублирования обработчиков
-            if (el.tagName === 'A' && el.closest('.nav')) return;
-            addTouchSupport(el, function(e) {
+        document.querySelectorAll('[data-page]').forEach(el => {
+            if (el.tagName === 'A' && el.closest('.nav')) return; // пропускаем навигацию
+            el.addEventListener('click', function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
             });
         });
 
-        // 11. Кнопки графика (переключение периодов)
+        // 11. Кнопки графика
         setupChartControls();
 
     } catch(e) {
@@ -813,8 +813,8 @@ async function handleDeposit(e) {
     e.preventDefault();
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('deposit-captcha')) { alert('Неверная капча'); return; }
-    const amount = parseFloat(document.getElementById('deposit-amount').value);
-    const contact = document.getElementById('deposit-contact').value.trim();
+    const amount = parseFloat(document.getElementById('deposit-amount')?.value);
+    const contact = document.getElementById('deposit-contact')?.value.trim();
     if (!amount || amount < 0.05) { alert('Минимальная сумма 0.05$'); return; }
     if (!contact) { alert('Введите контакт'); return; }
     const fee = amount * 0.03;
@@ -822,7 +822,8 @@ async function handleDeposit(e) {
     await pushFirebase('deposit_requests', { uid: currentUser.uid, amount: netAmount, fee, contact, timestamp: Date.now(), status: 'pending' });
     alert('Заявка на пополнение отправлена. Зачислено будет ' + netAmount.toFixed(2) + '$ (комиссия ' + fee.toFixed(2) + '$)');
     closeModal(document.getElementById('deposit-modal'));
-    document.getElementById('deposit-form').reset();
+    const form = document.getElementById('deposit-form');
+    if (form) form.reset();
 }
 
 async function handleWithdraw(e) {
@@ -833,8 +834,8 @@ async function handleWithdraw(e) {
         return;
     }
     if (!verifyCaptcha('withdraw-captcha')) { alert('Неверная капча'); return; }
-    const amount = parseFloat(document.getElementById('withdraw-amount').value);
-    const address = document.getElementById('withdraw-address').value.trim();
+    const amount = parseFloat(document.getElementById('withdraw-amount')?.value);
+    const address = document.getElementById('withdraw-address')?.value.trim();
     if (!amount || amount <= 0) { alert('Введите сумму'); return; }
     const fee = amount * 0.03;
     const total = amount + fee;
@@ -849,7 +850,8 @@ async function handleWithdraw(e) {
     await pushFirebase('withdraw_requests', { uid: currentUser.uid, amount: amount, fee, address, timestamp: Date.now(), status: 'pending' });
     alert('Заявка на вывод отправлена. Будет выведено ' + amount.toFixed(2) + ' монет (комиссия ' + fee.toFixed(2) + ' монет)');
     closeModal(document.getElementById('withdraw-modal'));
-    document.getElementById('withdraw-form').reset();
+    const form = document.getElementById('withdraw-form');
+    if (form) form.reset();
 }
 
 async function handleTransfer(e) {
@@ -857,8 +859,8 @@ async function handleTransfer(e) {
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('transfer-captcha')) { alert('Неверная капча'); return; }
 
-    const input = document.getElementById('transfer-to').value.trim();
-    const amount = parseFloat(document.getElementById('transfer-amount').value);
+    const input = document.getElementById('transfer-to')?.value.trim();
+    const amount = parseFloat(document.getElementById('transfer-amount')?.value);
     if (!input) { alert('Введите никнейм или UID получателя'); return; }
     if (!amount || amount <= 0) { alert('Введите сумму'); return; }
 
@@ -905,7 +907,8 @@ async function handleTransfer(e) {
     currentUser.balance_coins = newBalanceSender;
     alert(`Перевод выполнен! Комиссия: ${fee.toFixed(2)} RECKON (${(feePercent*100).toFixed(0)}%)`);
     closeModal(document.getElementById('transfer-modal'));
-    document.getElementById('transfer-form').reset();
+    const form = document.getElementById('transfer-form');
+    if (form) form.reset();
     await updateUIElements();
 }
 
@@ -914,8 +917,8 @@ async function handleExchange(e) {
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('exchange-captcha')) { alert('Неверная капча'); return; }
 
-    const direction = document.getElementById('exchange-direction').value;
-    const amount = parseFloat(document.getElementById('exchange-amount').value);
+    const direction = document.getElementById('exchange-direction')?.value;
+    const amount = parseFloat(document.getElementById('exchange-amount')?.value);
     if (!amount || amount <= 0) { alert('Введите сумму'); return; }
 
     let feePercent = getFeePercent(amount);
@@ -971,7 +974,8 @@ async function handleExchange(e) {
     }
 
     closeModal(document.getElementById('exchange-modal'));
-    document.getElementById('exchange-form').reset();
+    const form = document.getElementById('exchange-form');
+    if (form) form.reset();
     await updateUIElements();
 }
 
@@ -979,34 +983,35 @@ async function handleSupport(e) {
     e.preventDefault();
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('support-captcha')) { alert('Неверная капча'); return; }
-    const subject = document.getElementById('support-subject').value.trim();
-    const message = document.getElementById('support-message').value.trim();
+    const subject = document.getElementById('support-subject')?.value.trim();
+    const message = document.getElementById('support-message')?.value.trim();
     if (!subject || !message) { alert('Заполните все поля'); return; }
     await pushFirebase('support_requests', { uid: currentUser.uid, type: 'support', subject, message, timestamp: Date.now(), status: 'pending' });
     alert('Обращение отправлено.');
     closeModal(document.getElementById('support-modal'));
-    document.getElementById('support-form').reset();
+    const form = document.getElementById('support-form');
+    if (form) form.reset();
 }
 
 async function handleComplaint(e) {
     e.preventDefault();
     if (!currentUser) { alert('Войдите в аккаунт'); return; }
     if (!verifyCaptcha('complaint-captcha')) { alert('Неверная капча'); return; }
-    const target = document.getElementById('complaint-target').value.trim();
-    const text = document.getElementById('complaint-text').value.trim();
+    const target = document.getElementById('complaint-target')?.value.trim();
+    const text = document.getElementById('complaint-text')?.value.trim();
     if (!target || !text) { alert('Заполните все поля'); return; }
     await pushFirebase('support_requests', { uid: currentUser.uid, type: 'complaint', target, text, timestamp: Date.now(), status: 'pending' });
     alert('Жалоба отправлена.');
     closeModal(document.getElementById('complaint-modal'));
-    document.getElementById('complaint-form').reset();
+    const form = document.getElementById('complaint-form');
+    if (form) form.reset();
 }
 
 // ============================================================
-// 10. НАВИГАЦИЯ (пустая, вся логика в setupModals)
+// 10. НАВИГАЦИЯ (пустая, всё в setupModals)
 // ============================================================
 function setupNavigation() {
-    // Вся логика навигации перенесена в setupModals для избежания дублирования.
-    // Этот метод оставлен пустым, чтобы не нарушать вызов в initSite.
+    // Вся навигация уже в setupModals
     console.log('[Reckon] setupNavigation вызвана (пустая)');
 }
 
@@ -1015,9 +1020,15 @@ function setupNavigation() {
 // ============================================================
 async function initSite() {
     try {
-        registerHandlers();
+        // Безопасный вызов регистрации
+        try {
+            registerHandlers();
+        } catch (e) {
+            console.warn('[Reckon] registerHandlers error:', e);
+        }
 
         if (!siteConfig.debug) {
+            // Защита DevTools (оставлена как было)
             GradusWeb.security.enableDevToolsProtection(() => {
                 GradusWeb.secretStorage.clear();
                 GradusWeb.cache.clear();
@@ -1044,8 +1055,10 @@ async function initSite() {
             await initChart();
         }
 
+        // Настройка всех событий
         setupModals();
-        setupNavigation(); // теперь пустая
+        setupNavigation(); // пустая, но для совместимости
+
     } catch(e) {
         console.error('[Reckon] КРИТИЧЕСКАЯ ОШИБКА в initSite:', e);
     }
