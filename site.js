@@ -71,7 +71,7 @@ function registerHandlers() {
     try {
         GradusStatic.registerHandler('get_price', async () => {
             const d = await readFirebase('price_current');
-            return d && d.price ? '$' + d.price.toFixed(4) : '$0.0000';
+            return d && d.price ? '$' + d.price.toFixed(6) : '$0.000000';
         });
     } catch (e) {
         console.warn('[Reckon] registerHandlers не удалось (GradusStatic может отсутствовать):', e);
@@ -170,7 +170,7 @@ async function updateUIElements() {
         if (uidEl) uidEl.textContent = 'UID: —';
         if (coinBalanceEl) coinBalanceEl.textContent = '0.00';
         if (usdBalanceEl) usdBalanceEl.textContent = '$0.00';
-        if (priceEl) priceEl.textContent = '$0.0000';
+        if (priceEl) priceEl.textContent = '$0.000000';
         if (marketCapEl) marketCapEl.textContent = '$0.00';
         if (volumeEl) volumeEl.textContent = '$0.00';
         if (totalSupplyEl) totalSupplyEl.textContent = '0';
@@ -197,7 +197,7 @@ async function updateUIElements() {
         const totalSupply = freeSupply + totalCoinsOnWallets + commissionPool;
         let price = priceData && priceData.price ? priceData.price : 0;
 
-        if (priceEl) priceEl.textContent = price ? '$' + price.toFixed(4) : '$0.0000';
+        if (priceEl) priceEl.textContent = price ? '$' + price.toFixed(6) : '$0.000000';
         if (marketCapEl) marketCapEl.textContent = '$' + (price * totalSupply).toFixed(2);
         if (volumeEl) volumeEl.textContent = '$0.00';
         if (totalSupplyEl) totalSupplyEl.textContent = totalSupply.toFixed(0);
