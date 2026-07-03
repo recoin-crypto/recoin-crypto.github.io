@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (исправленная версия)
+// site.js — Reckon Coin (финальная версия, без дублирования, только click)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -308,8 +308,8 @@ function showAuthModal() {
     if (modal && !modal.classList.contains('active')) modal.classList.add('active');
 }
 function hideAuthModal() {
-    const authModal = document.getElementById('auth-modal');
-    if (authModal) authModal.classList.remove('active');
+    const modal = document.getElementById('auth-modal');
+    if (modal) modal.classList.remove('active');
 }
 
 function toggleAuthMode() {
@@ -603,11 +603,10 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (без addTouchSupport)
+// 8. МОДАЛКИ И ФОРМЫ (только click)
 // ============================================================
 function setupModals() {
     try {
-        // Вспомогательная функция открытия с капчей
         function openWithCaptcha(id, captchaId) {
             if (!currentUser) {
                 showAuthModal();
@@ -619,7 +618,7 @@ function setupModals() {
             }
         }
 
-        // 1. Кнопки открытия модалок (простой click)
+        // 1. Кнопки открытия модалок
         const buttonMap = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
@@ -670,7 +669,6 @@ function setupModals() {
         if (complaintForm) complaintForm.addEventListener('submit', handleComplaint);
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
-        // Кнопка выхода
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', logout);
@@ -734,7 +732,7 @@ function setupModals() {
             });
         }
 
-        // 8. Мобильное меню (гамбургер)
+        // 8. Мобильное меню
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
             mobileToggle.addEventListener('click', function() {
@@ -743,7 +741,7 @@ function setupModals() {
             });
         }
 
-        // 9. Навигационные ссылки (вкладки: Главная, Кабинет, Майнинг)
+        // 9. Навигационные ссылки
         document.querySelectorAll('.nav a[data-page]').forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -767,9 +765,9 @@ function setupModals() {
             });
         });
 
-        // 10. Кнопки "Узнать больше" и другие элементы с data-page (кроме навигации)
+        // 10. Кнопки "Узнать больше" и другие [data-page] (кроме навигации)
         document.querySelectorAll('[data-page]').forEach(el => {
-            if (el.tagName === 'A' && el.closest('.nav')) return; // пропускаем навигацию
+            if (el.tagName === 'A' && el.closest('.nav')) return;
             el.addEventListener('click', function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
@@ -1011,7 +1009,6 @@ async function handleComplaint(e) {
 // 10. НАВИГАЦИЯ (пустая, всё в setupModals)
 // ============================================================
 function setupNavigation() {
-    // Вся навигация уже в setupModals
     console.log('[Reckon] setupNavigation вызвана (пустая)');
 }
 
@@ -1020,7 +1017,7 @@ function setupNavigation() {
 // ============================================================
 async function initSite() {
     try {
-        // Безопасный вызов регистрации
+        // Безопасная регистрация обработчиков
         try {
             registerHandlers();
         } catch (e) {
@@ -1028,7 +1025,6 @@ async function initSite() {
         }
 
         if (!siteConfig.debug) {
-            // Защита DevTools (оставлена как было)
             GradusWeb.security.enableDevToolsProtection(() => {
                 GradusWeb.secretStorage.clear();
                 GradusWeb.cache.clear();
@@ -1055,9 +1051,8 @@ async function initSite() {
             await initChart();
         }
 
-        // Настройка всех событий
         setupModals();
-        setupNavigation(); // пустая, но для совместимости
+        setupNavigation(); // пустая, для совместимости
 
     } catch(e) {
         console.error('[Reckon] КРИТИЧЕСКАЯ ОШИБКА в initSite:', e);
@@ -1067,6 +1062,6 @@ async function initSite() {
 // ============================================================
 // 12. ЗАПУСК
 // ============================================================
-//document.addEventListener('DOMContentLoaded', function() {
-//    initSite();
-//});
+document.addEventListener('DOMContentLoaded', function() {
+    initSite();
+});
