@@ -1054,6 +1054,6 @@ async function initSite() {
 // ============================================================
 // 12. ЗАПУСК
 // ============================================================
-document.addEventListener('DOMContentLoaded', function() {
-    initSite();
-});
+//document.addEventListener('DOMContentLoaded', function() {
+//    initSite();
+//});
