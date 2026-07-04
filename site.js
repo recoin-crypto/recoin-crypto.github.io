@@ -1132,10 +1132,20 @@ function setupModals() {
         // === МОБИЛЬНОЕ МЕНЮ ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            addEvent(mobileToggle, function() {
+            // Используем только click для надёжности
+            mobileToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
+                console.log('Меню переключено');
             });
+            // Для мобильных добавляем touchstart
+            mobileToggle.addEventListener('touchstart', function(e) {
+                e.stopPropagation();
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.toggle('open');
+                console.log('Меню переключено (touch)');
+            }, { passive: true });
         }
 
         // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
