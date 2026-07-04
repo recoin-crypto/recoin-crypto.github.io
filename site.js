@@ -1151,12 +1151,15 @@ function setupModals() {
             if (agreementModal) agreementModal.classList.remove('active');
         });
 
-        // === МОБИЛЬНОЕ МЕНЮ ===
+        // === МОБИЛЬНОЕ МЕНЮ (бургер) ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            addSafeEvent(mobileToggle, function() {
+            // Используем только click, как в старой версии
+            mobileToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
+                console.log('Меню переключено через click');
             });
         }
 
