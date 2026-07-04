@@ -956,26 +956,24 @@ function previewAvatar(url) {
 // 9. МОДАЛКИ И ФОРМЫ (только click, без touchstart)
 // ============================================================
 
+// Определяем, сенсорное ли устройство (делаем один раз)
+const isTouchDevice = ('ontouchstart' in window) ||
+                      (navigator.maxTouchPoints > 0) ||
+                      (navigator.msMaxTouchPoints > 0);
+
 function addEventListeners(element, callback) {
     if (!element) return;
-    // Флаг, чтобы предотвратить двойной вызов (на всякий случай)
-    let fired = false;
 
-    // Мгновенный touchstart для мобильных
-    element.addEventListener('touchstart', function(e) {
-        fired = true;
-        callback.call(this, e);  // сохраняем контекст и объект события
-        e.preventDefault();      // отменяем последующий click
-    }, { passive: false });     // обязательно passive: false, иначе preventDefault не сработает
-
-    // Обычный click для десктопа (и как fallback для редких случаев)
-    element.addEventListener('click', function(e) {
-        if (fired) {
-            fired = false;       // сбрасываем флаг
-            return;              // пропускаем, т.к. уже обработано в touchstart
-        }
-        callback.call(this, e);
-    });
+    if (isTouchDevice) {
+        // На сенсорных экранах — touchstart с отменой последующего click
+        element.addEventListener('touchstart', function(e) {
+            callback.call(this, e);
+            e.preventDefault();        // ← подавляет генерацию click после касания
+        }, { passive: false });       // ← обязательно для возможности preventDefault
+    } else {
+        // На обычных ПК — только click
+        element.addEventListener('click', callback);
+    }
 }
 
 function setupModals() {
