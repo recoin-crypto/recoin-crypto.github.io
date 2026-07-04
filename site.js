@@ -1,8 +1,13 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия с друзьями, VIP, аватарками, жалобами)
+// site.js — Reckon Coin (полная версия с поддержкой мобильных устройств и VIP-выбором)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
+
+// === ОПРЕДЕЛЕНИЕ МОБИЛЬНОГО УСТРОЙСТВА ===
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
 
 // === ДЕКОДИРУЕМ URL ===
 const encodedUrl = '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155';
@@ -29,6 +34,7 @@ let currentPeriod = '1h';
 let allHistoryData = [];
 let freeAvatars = [];
 let friendsListCache = {};
+let selectedVipPlan = null; // для VIP
 
 // === ВАЛЮТА ===
 let selectedCurrency = localStorage.getItem('recoin_currency') || 'USD';
@@ -59,20 +65,6 @@ async function loadExchangeRates() {
     } catch (e) {
         console.warn('[Reckon] Не удалось загрузить курсы валют:', e);
     }
-}
-
-//function logToScreen(msg) {
-//    const el = document.getElementById('debug-log');
-//    if (el) {
-//        el.classList.add('active');
-//        el.textContent += msg + '\n';
-//        el.scrollTop = el.scrollHeight;
-//    }
-//    console.log('[Reckon] ' + msg);
-//}
-
-function logToScreen(msg) {
-    console.log('[Reckon] Deleted log');
 }
 
 // === ФУНКЦИИ ВАЛЮТ ===
@@ -142,7 +134,7 @@ function registerHandlers() {
 }
 
 // ============================================================
-// 3. КАПЧА (без изменений)
+// 3. КАПЧА
 // ============================================================
 function generateCaptchaImage(containerId) {
     const container = document.getElementById(containerId);
@@ -734,7 +726,6 @@ async function loadFreeAvatars() {
         if (data) {
             freeAvatars = Object.values(data);
         } else {
-            // fallback
             freeAvatars = [
                 'https://i.pravatar.cc/150?img=1',
                 'https://i.pravatar.cc/150?img=2',
@@ -772,8 +763,6 @@ function renderFreeAvatars() {
     container.innerHTML = html;
 }
 
-
-
 // === СКРЫТИЕ БАЛАНСА (только VIP) ===
 async function saveBalanceVisibility() {
     if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
@@ -800,8 +789,6 @@ function isVIPActive(user) {
     if (!user.vip_expires) return false;
     return user.vip_expires > Date.now();
 }
-
-
 
 async function updateVIPStatus() {
     const statusEl = document.getElementById('vip-status');
@@ -831,7 +818,7 @@ async function autoRenewVIP() {
     if (!currentUser.auto_renew) return;
     const period = currentUser.auto_renew_period || 30;
     const price = period === 30 ? 0.40 : 2.00;
-    const discountedPrice = price * 0.8; // 20% скидка при продлении
+    const discountedPrice = price * 0.8;
     if (currentUser.balance_usd < discountedPrice) {
         GradusWeb.notify.warning('Недостаточно средств для авто-продления VIP');
         return;
@@ -966,7 +953,6 @@ async function removeFriend(friendUid) {
 // === ЖАЛОБА НА ДРУГА ===
 async function reportFriend(friendUid) {
     if (!confirm('Подать жалобу на этого пользователя? Он будет удалён из друзей.')) return;
-    // Отправляем жалобу в support_requests
     const complaint = {
         uid: currentUser.uid,
         type: 'friend_complaint',
@@ -976,7 +962,6 @@ async function reportFriend(friendUid) {
         status: 'pending'
     };
     await pushFirebase('support_requests', complaint);
-    // Удаляем друга
     await deleteFirebase('users/' + currentUser.uid + '/friends/accepted/' + friendUid);
     await deleteFirebase('users/' + friendUid + '/friends/accepted/' + currentUser.uid);
     GradusWeb.notify.success('Жалоба отправлена, друг удалён');
@@ -994,10 +979,33 @@ function previewAvatar(url) {
 }
 
 // ============================================================
-// 9. МОДАЛКИ И ФОРМЫ (полная настройка)
+// 9. МОДАЛКИ И ФОРМЫ (с поддержкой мобильных и VIP-выбором)
 // ============================================================
 function setupModals() {
     try {
+        // Определяем, мобильное ли устройство, чтобы использовать правильные события
+        const isMobile = isMobileDevice();
+
+        // Вспомогательная функция для добавления обработчиков
+        function addEvent(element, callback) {
+            if (!element) return;
+            if (isMobile) {
+                // Для мобильных используем touchstart (без preventDefault, чтобы не блокировать чекбоксы)
+                element.addEventListener('touchstart', callback, { passive: true });
+                // Также оставляем click для надёжности (но на мобильных он срабатывает с задержкой)
+                element.addEventListener('click', callback);
+            } else {
+                // Для десктопа только click
+                element.addEventListener('click', callback);
+            }
+        }
+
+        // Для чекбоксов используем только click (на мобильных они работают нормально)
+        function addEventForCheckbox(element, callback) {
+            if (!element) return;
+            element.addEventListener('click', callback);
+        }
+
         function openWithCaptcha(id, captchaId) {
             if (!currentUser) { showAuthModal(); return; }
             openModal(id);
@@ -1020,7 +1028,7 @@ function setupModals() {
         buttonMap.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
-                el.addEventListener('click', function(e) {
+                addEvent(el, function(e) {
                     if (item.id === 'settings-btn' || item.id === 'friends-btn' || item.id === 'vip-btn') {
                         if (!currentUser) { showAuthModal(); return; }
                         openModal(item.modal);
@@ -1033,16 +1041,17 @@ function setupModals() {
             }
         });
 
-        // === ЗАКРЫТИЕ МОДАЛОК ===
+        // === ЗАКРЫТИЕ МОДАЛОК (крестики) ===
         document.querySelectorAll('.modal-close').forEach(el => {
-            el.addEventListener('click', function() {
+            addEvent(el, function() {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
         });
 
+        // === ЗАКРЫТИЕ ПО КЛИКУ ВНЕ МОДАЛКИ ===
         document.querySelectorAll('.modal').forEach(modal => {
-            modal.addEventListener('click', function(e) {
+            addEvent(modal, function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -1065,7 +1074,7 @@ function setupModals() {
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) logoutBtn.addEventListener('click', logout);
+        if (logoutBtn) addEvent(logoutBtn, logout);
 
         // === РАСЧЁТ КОМИССИЙ ===
         const transferAmount = document.getElementById('transfer-amount');
@@ -1106,28 +1115,24 @@ function setupModals() {
         const agreementCloseBtn = document.getElementById('agreement-close-btn');
 
         if (authForm) authForm.addEventListener('submit', handleAuthSubmit);
-        if (authSwitch) authSwitch.addEventListener('click', toggleAuthMode);
+        if (authSwitch) addEvent(authSwitch, toggleAuthMode);
         if (showAgreement) {
-            showAgreement.addEventListener('click', function(e) {
+            addEvent(showAgreement, function(e) {
                 e.preventDefault();
                 if (agreementModal) agreementModal.classList.add('active');
             });
         }
-        if (agreementClose) {
-            agreementClose.addEventListener('click', function() {
-                if (agreementModal) agreementModal.classList.remove('active');
-            });
-        }
-        if (agreementCloseBtn) {
-            agreementCloseBtn.addEventListener('click', function() {
-                if (agreementModal) agreementModal.classList.remove('active');
-            });
-        }
+        if (agreementClose) addEvent(agreementClose, function() {
+            if (agreementModal) agreementModal.classList.remove('active');
+        });
+        if (agreementCloseBtn) addEvent(agreementCloseBtn, function() {
+            if (agreementModal) agreementModal.classList.remove('active');
+        });
 
         // === МОБИЛЬНОЕ МЕНЮ ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            mobileToggle.addEventListener('click', function() {
+            addEvent(mobileToggle, function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
@@ -1135,7 +1140,7 @@ function setupModals() {
 
         // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
         document.querySelectorAll('.nav a[data-page]').forEach(link => {
-            link.addEventListener('click', function(e) {
+            addEvent(link, function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -1157,7 +1162,7 @@ function setupModals() {
         // === КНОПКИ "УЗНАТЬ БОЛЬШЕ" ===
         document.querySelectorAll('[data-page]').forEach(el => {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            el.addEventListener('click', function(e) {
+            addEvent(el, function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
@@ -1169,7 +1174,7 @@ function setupModals() {
 
         // === ВАЛЮТА ===
         document.querySelectorAll('.currency-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
+            addEvent(btn, function() {
                 const currency = this.dataset.currency;
                 if (currency) setCurrency(currency);
             });
@@ -1177,40 +1182,62 @@ function setupModals() {
 
         // === АВАТАРКИ ===
         const saveAvatarBtn = document.getElementById('save-avatar-btn');
-        if (saveAvatarBtn) saveAvatarBtn.addEventListener('click', saveAvatar);
+        if (saveAvatarBtn) addEvent(saveAvatarBtn, saveAvatar);
 
         // === СКРЫТИЕ БАЛАНСА ===
         const saveVisibilityBtn = document.getElementById('save-balance-visibility');
-        if (saveVisibilityBtn) saveVisibilityBtn.addEventListener('click', saveBalanceVisibility);
+        if (saveVisibilityBtn) addEvent(saveVisibilityBtn, saveBalanceVisibility);
 
         // === ВКЛАДКИ ДРУЗЕЙ ===
-        document.getElementById('friends-tab-accepted')?.addEventListener('click', function() {
-            renderFriends('accepted');
-        });
-        document.getElementById('friends-tab-requests')?.addEventListener('click', function() {
-            renderFriends('requests');
-        });
+        const acceptedTab = document.getElementById('friends-tab-accepted');
+        const requestsTab = document.getElementById('friends-tab-requests');
+        if (acceptedTab) addEvent(acceptedTab, function() { renderFriends('accepted'); });
+        if (requestsTab) addEvent(requestsTab, function() { renderFriends('requests'); });
 
         // === ДОБАВЛЕНИЕ ДРУГА ===
-        document.getElementById('add-friend-btn')?.addEventListener('click', sendFriendRequest);
+        const addFriendBtn = document.getElementById('add-friend-btn');
+        if (addFriendBtn) addEvent(addFriendBtn, sendFriendRequest);
 
+        // === VIP ЛОГИКА С ВЫБОРОМ ПЛАНА ===
+        selectedVipPlan = null;
         const buyVipBtn = document.getElementById('buy-vip-btn');
-        if (buyVipBtn) {
-            buyVipBtn.addEventListener('click', function() {
-                const firstPlan = document.querySelector('.vip-plan');
-                if (firstPlan) {
-                    firstPlan.click();
-                } else {
-                    GradusWeb.notify.warning('Нет доступных планов');
-                }
-            });
-        }
 
+        // Обработчики для карточек VIP-планов
         document.querySelectorAll('.vip-plan').forEach(el => {
-            el.addEventListener('click', function(e) {
+            addEvent(el, function(e) {
                 e.stopPropagation();
+                // Снимаем активный класс со всех
+                document.querySelectorAll('.vip-plan').forEach(p => p.classList.remove('active'));
+                this.classList.add('active');
+                selectedVipPlan = this;
                 const days = parseInt(this.dataset.days);
                 const price = parseFloat(this.dataset.price);
+                // Проверка на подмену data-days (защита)
+                if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
+                    GradusWeb.notify.warning('Некорректные данные плана');
+                    selectedVipPlan = null;
+                    document.getElementById('selected-plan').textContent = 'Ошибка выбора';
+                    return;
+                }
+                const label = this.querySelector('div:first-child')?.textContent || days + ' дн.';
+                document.getElementById('selected-plan').textContent = `Выбран: ${label} — ${formatCurrency(price)}`;
+            });
+        });
+
+        // Кнопка "Купить VIP"
+        if (buyVipBtn) {
+            addEvent(buyVipBtn, function() {
+                if (!selectedVipPlan) {
+                    GradusWeb.notify.warning('Выберите план');
+                    return;
+                }
+                const days = parseInt(selectedVipPlan.dataset.days);
+                const price = parseFloat(selectedVipPlan.dataset.price);
+                // Повторная проверка на подмену
+                if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
+                    GradusWeb.notify.error('Некорректные данные плана');
+                    return;
+                }
                 let discount = 0;
                 if (isVIPActive(currentUser)) {
                     discount = 0.20;
@@ -1221,12 +1248,12 @@ function setupModals() {
                 }
                 buyVIP(days, finalPrice);
             });
-        });
+        }
 
         // === АВТО-ПРОДЛЕНИЕ VIP ===
         const saveAutoRenewBtn = document.getElementById('save-auto-renew');
         if (saveAutoRenewBtn) {
-            saveAutoRenewBtn.addEventListener('click', async function() {
+            addEvent(saveAutoRenewBtn, async function() {
                 if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
                 const period = parseInt(document.getElementById('auto-renew-period').value);
                 await writeFirebase('users/' + currentUser.uid + '/auto_renew_period', period);
@@ -1249,7 +1276,6 @@ function setupModals() {
                             if (checkbox && currentUser) {
                                 checkbox.checked = currentUser.hide_balance || false;
                             }
-                            // Загружаем настройки авто-продления
                             const autoRenewSelect = document.getElementById('auto-renew-period');
                             if (autoRenewSelect && currentUser) {
                                 autoRenewSelect.value = currentUser.auto_renew_period || 0;
@@ -1297,43 +1323,34 @@ async function buyVIP(days, priceUSD) {
 // ============================================================
 // АВАТАРКИ (исправленные)
 // ============================================================
-// Удалите второе (первое) определение setFreeAvatar, оставьте это ИСПРАВЛЕННОЕ
-// === ИСПРАВЛЕННАЯ setFreeAvatar ===
 async function setFreeAvatar(url) {
-    logToScreen('setFreeAvatar вызвана с URL: ' + url);
+    console.log('[Reckon] setFreeAvatar вызвана с URL: ' + url);
     if (!currentUser) {
-        logToScreen('Ошибка: пользователь не авторизован');
+        console.log('[Reckon] Ошибка: пользователь не авторизован');
         GradusWeb.notify.warning('Войдите в аккаунт');
         return;
     }
 
     const userPath = 'users/' + currentUser.uid;
-    logToScreen('Читаем текущие данные пользователя из: ' + userPath);
     const userData = await readFirebase(userPath);
     if (!userData) {
-        logToScreen('Ошибка: данные пользователя не найдены');
         GradusWeb.notify.error('Ошибка получения данных');
         return;
     }
 
-    // Меняем только аватар
     userData.avatar = url;
-    logToScreen('Пытаемся записать обновлённого пользователя...');
     const success = await writeFirebase(userPath, userData);
     if (success) {
         currentUser.avatar = url;
         await updateUIElements();
         GradusWeb.notify.success('Аватарка установлена');
-        logToScreen('UI обновлён, avatar = ' + currentUser.avatar);
     } else {
-        logToScreen('writeFirebase вернул false');
         GradusWeb.notify.error('Не удалось сохранить аватарку');
     }
 }
 
-// === ИСПРАВЛЕННАЯ saveAvatar ===
 async function saveAvatar() {
-    logToScreen('saveAvatar вызвана');
+    console.log('[Reckon] saveAvatar вызвана');
     const input = document.getElementById('avatar-url-input');
     const url = input?.value.trim();
     if (!url) {
@@ -1367,6 +1384,7 @@ async function saveAvatar() {
         GradusWeb.notify.error('Не удалось сохранить аватарку');
     }
 }
+
 function openModal(id) {
     const modal = document.getElementById(id);
     if (modal) modal.classList.add('active');
