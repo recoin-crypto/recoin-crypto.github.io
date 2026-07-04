@@ -12,9 +12,6 @@
 </head>
 <body>
 
-<!-- ===== БЛОК ОТЛАДКИ ===== -->
-<div id="debug-log"></div>
-
 <!-- ===== МОДАЛКА ВХОДА/РЕГИСТРАЦИИ ===== -->
 <div class="modal" id="auth-modal">
     <div class="modal-content" style="max-width: 450px;">
@@ -147,19 +144,25 @@
         <div class="page" id="page-cabinet">
             <div class="cabinet-grid">
                 <div class="profile-card">
-                    <div class="avatar">👤</div>
-                    <div class="profile-info">
-                        <h2 id="username">Гость</h2>
-                        <p class="user-id" id="uid-display">UID: —</p>
-                        <div class="balance-row">
-                            <div class="balance-item">
-                                <span class="balance-label">Монеты</span>
-                                <span class="balance-value" id="coin-balance">0.00</span>
-                            </div>
-                            <div class="balance-item">
-                                <span class="balance-label">USD</span>
-                                <span class="balance-value" id="usd-balance">$0.00</span>
-                            </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="position: relative; width: 64px; height: 64px; cursor: pointer;" onclick="if(currentUser && currentUser.avatar) previewAvatar(currentUser.avatar)">
+                            <img id="avatar-img" src="" alt="Avatar" style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; display: none; border: 2px solid #4a9eff;">
+                            <div class="avatar-emoji" style="font-size: 48px; text-align: center; line-height: 64px; width: 64px; height: 64px; background: #2a2a3a; border-radius: 50%;">👤</div>
+                        </div>
+                        <div class="profile-info">
+                            <h2 id="username">Гость</h2>
+                            <p class="user-id" id="uid-display">UID: —</p>
+                            <div id="vip-badge" style="display: none; color: gold; font-weight: bold;">💎 VIP</div>
+                        </div>
+                    </div>
+                    <div class="balance-row" style="margin-top: 10px;">
+                        <div class="balance-item">
+                            <span class="balance-label">Монеты</span>
+                            <span class="balance-value" id="coin-balance">0.00</span>
+                        </div>
+                        <div class="balance-item">
+                            <span class="balance-label">USD</span>
+                            <span class="balance-value" id="usd-balance">$0.000</span>
                         </div>
                     </div>
                 </div>
@@ -170,6 +173,9 @@
                     <button class="action-btn" id="exchange-btn">💱 Обменять</button>
                     <button class="action-btn" id="support-btn">📩 Техподдержка</button>
                     <button class="action-btn" id="complaint-btn">⚠️ Жалоба</button>
+                    <button class="action-btn" id="friends-btn">👥 Друзья</button>
+                    <button class="action-btn" id="vip-btn">💎 VIP</button>
+                    <button class="action-btn" id="settings-btn">⚙️ Настройки</button>
                 </div>
             </div>
             <section class="history-section">
@@ -190,7 +196,7 @@
                 <div class="mining-card">
                     <h3>📥 Скачать майнер</h3>
                     <p>Скачайте приложение для Windows и начните майнить прямо сейчас.</p>
-                    <a href="./miner.exe" class="btn btn-primary" id="download-miner">Скачать .exe (требуется Java 17+)</a>
+                    <a href="./files/miner.exe" class="btn btn-primary" id="download-miner">Скачать .exe (требуется Java 17+)</a>
                     <small>Версия 1.0.0 | 0.1 МБ</small>
                 </div>
                 <div class="mining-card">
@@ -205,7 +211,7 @@
                     </div>
                     <div class="stat-row">
                         <span>Доступно в обороте комиссий:</span>
-                        <span id="commission-pool">0.00</span>
+                        <span id="commission-pool">0.00 RECKON ($0.00)</span>
                     </div>
                 </div>
                 <div class="mining-card">
@@ -368,6 +374,85 @@
             <div id="complaint-captcha" class="captcha-box"></div>
             <button type="submit" class="btn btn-primary">Отправить</button>
         </form>
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА НАСТРОЕК ===== -->
+<div class="modal" id="settings-modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <span class="modal-close">&times;</span>
+        <h2>Настройки</h2>
+        <div class="form-group">
+            <label>Валюта отображения</label>
+            <div style="display: flex; gap: 10px; margin-top: 5px;">
+                <button class="btn currency-btn" data-currency="USD" style="flex:1;">USD</button>
+                <button class="btn currency-btn" data-currency="RUB" style="flex:1;">RUB</button>
+                <button class="btn currency-btn" data-currency="BYN" style="flex:1;">BYN</button>
+            </div>
+        </div>
+        <hr style="border-color: #2a2a3a; margin: 15px 0;">
+        <div class="form-group">
+            <label>Бесплатные аватарки</label>
+            <div id="free-avatars-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 10px; margin-top: 5px;"></div>
+        </div>
+        <hr style="border-color: #2a2a3a; margin: 15px 0;">
+        <div class="form-group">
+            <label>Свой URL аватарки</label>
+            <input type="text" id="avatar-url-input" placeholder="https://example.com/avatar.png" style="width:100%; padding:8px; background:#1a1a28; border:1px solid #2a2a3a; border-radius:6px; color:#e0e0e0;">
+            <button class="btn btn-primary" id="save-avatar-btn" style="margin-top:10px;">Сохранить аватар</button>
+        </div>
+        <hr style="border-color: #2a2a3a; margin: 15px 0;">
+        <div class="form-group">
+            <label>Скрыть баланс от друзей</label>
+            <input type="checkbox" id="hide-balance-checkbox" style="width: auto;">
+            <label for="hide-balance-checkbox">Скрыть</label>
+            <button class="btn btn-secondary" id="save-balance-visibility" style="margin-top:5px;">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА ДРУЗЕЙ ===== -->
+<div class="modal" id="friends-modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <span class="modal-close">&times;</span>
+        <h2>Друзья</h2>
+        <div class="form-group">
+            <label>Добавить друга по UID</label>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="add-friend-input" placeholder="UID друга" style="flex:1;">
+                <button class="btn btn-primary" id="add-friend-btn">Отправить заявку</button>
+            </div>
+        </div>
+        <div style="display: flex; gap: 20px; margin-bottom: 10px;">
+            <button class="btn friends-tab" id="friends-tab-accepted" style="flex:1;">Друзья</button>
+            <button class="btn friends-tab" id="friends-tab-requests" style="flex:1;">Заявки</button>
+        </div>
+        <div id="friends-list">
+            <p>Загрузка...</p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА VIP ===== -->
+<div class="modal" id="vip-modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <span class="modal-close">&times;</span>
+        <h2>VIP подписка</h2>
+        <div id="vip-plans">
+            <div class="vip-plan" data-days="3" data-price="0.05">3 дня - 0.05$</div>
+            <div class="vip-plan" data-days="30" data-price="0.40">30 дней - 0.40$</div>
+            <div class="vip-plan" data-days="365" data-price="2.00">365 дней - 2.00$</div>
+        </div>
+        <p id="vip-status">Статус: не активен</p>
+        <button class="btn btn-primary" id="buy-vip-btn">Купить VIP</button>
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА ПРОСМОТРА АВАТАРКИ ===== -->
+<div class="modal" id="avatar-preview-modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <span class="modal-close">&times;</span>
+        <img id="avatar-preview-img" src="" alt="Avatar" style="width: 100%; max-width: 300px; border-radius: 10px;">
     </div>
 </div>
 
