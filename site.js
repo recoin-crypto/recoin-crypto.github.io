@@ -966,7 +966,7 @@ function previewAvatar(url) {
 //    if (isTouchDevice) {
 //        element.addEventListener('touchstart', function(e) {
 //            callback.call(this, e);
-//            e.preventDefault();
+//            e.preventDefault();  // подавляем последующий click
 //        }, { passive: false });
 //    } else {
 //        element.addEventListener('click', function(e) {
@@ -977,8 +977,24 @@ function previewAvatar(url) {
 
 function addEventListeners(element, callback) {
     if (!element) return;
+    let fired = false; // флаг для предотвращения двойного срабатывания
+
+    // Для мобильных – мгновенный отклик
+    element.addEventListener('touchstart', function(e) {
+        if (!fired) {
+            fired = true;
+            callback.call(this, e);
+            // Не вызываем preventDefault(), чтобы не блокировать скролл и другие события
+        }
+    }, { passive: true });
+
+    // Для десктопа и как fallback
     element.addEventListener('click', function(e) {
-        callback.call(this, e);
+        if (!fired) {
+            callback.call(this, e);
+        } else {
+            fired = false; // сбрасываем после обработки
+        }
     });
 }
 
