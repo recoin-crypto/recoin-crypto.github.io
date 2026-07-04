@@ -958,8 +958,24 @@ function previewAvatar(url) {
 
 function addEventListeners(element, callback) {
     if (!element) return;
-    // Только click, без touchstart (чтобы избежать двойного срабатывания)
-    element.addEventListener('click', callback);
+    // Флаг, чтобы предотвратить двойной вызов (на всякий случай)
+    let fired = false;
+
+    // Мгновенный touchstart для мобильных
+    element.addEventListener('touchstart', function(e) {
+        fired = true;
+        callback.call(this, e);  // сохраняем контекст и объект события
+        e.preventDefault();      // отменяем последующий click
+    }, { passive: false });     // обязательно passive: false, иначе preventDefault не сработает
+
+    // Обычный click для десктопа (и как fallback для редких случаев)
+    element.addEventListener('click', function(e) {
+        if (fired) {
+            fired = false;       // сбрасываем флаг
+            return;              // пропускаем, т.к. уже обработано в touchstart
+        }
+        callback.call(this, e);
+    });
 }
 
 function setupModals() {
