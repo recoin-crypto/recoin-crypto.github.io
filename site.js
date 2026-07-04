@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия, только click)
+// site.js — Reckon Coin (исправленная версия, финальная)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -953,29 +953,26 @@ function previewAvatar(url) {
 }
 
 // ============================================================
-// 9. МОДАЛКИ И ФОРМЫ (только click, без touchstart)
+// 9. МОДАЛКИ И ФОРМЫ (корректная обработка событий)
 // ============================================================
-// Определяем тип устройства ОДИН РАЗ
+
+// Определяем, сенсорное ли устройство
 const isTouchDevice = ('ontouchstart' in window) ||
                       (navigator.maxTouchPoints > 0) ||
                       (navigator.msMaxTouchPoints > 0);
 
-console.log('[Reckon] isTouchDevice:', isTouchDevice); // для диагностики
-
+// Универсальное добавление обработчика: на тач-устройствах – touchstart с подавлением click,
+// на десктопах – обычный click
 function addEventListeners(element, callback) {
     if (!element) return;
 
     if (isTouchDevice) {
-        // На сенсорных экранах – мгновенный touchstart без последующего click
         element.addEventListener('touchstart', function(e) {
-            console.log('[Reckon] touchstart на элементе', element.id || element.className);
             callback.call(this, e);
-            e.preventDefault();       // отменяет генерацию click
-        }, { passive: false });      // обязательно для preventDefault
+            e.preventDefault();  // подавляем последующий click
+        }, { passive: false });
     } else {
-        // На обычных ПК – только click
         element.addEventListener('click', function(e) {
-            console.log('[Reckon] click на элементе', element.id || element.className);
             callback.call(this, e);
         });
     }
@@ -1018,17 +1015,17 @@ function setupModals() {
             }
         });
 
-        // === ЗАКРЫТИЕ МОДАЛОК (крестики) ===
+        // === ЗАКРЫТИЕ МОДАЛОК (крестики) – обычный click, чтобы не мешать внутренним элементам ===
         document.querySelectorAll('.modal-close').forEach(el => {
-            addEventListeners(el, function() {
+            el.addEventListener('click', function() {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
         });
 
-        // === ЗАКРЫТИЕ ПО КЛИКУ ВНЕ МОДАЛКИ ===
+        // === ЗАКРЫТИЕ ПО КЛИКУ ВНЕ МОДАЛКИ – обычный click ===
         document.querySelectorAll('.modal').forEach(modal => {
-            addEventListeners(modal, function(e) {
+            modal.addEventListener('click', function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -1053,7 +1050,7 @@ function setupModals() {
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn) addEventListeners(logoutBtn, logout);
 
-        // === РАСЧЁТ КОМИССИЙ ===
+        // === РАСЧЁТ КОМИССИЙ (input, поэтому обычный input) ===
         const transferAmount = document.getElementById('transfer-amount');
         if (transferAmount) {
             transferAmount.addEventListener('input', function() {
@@ -1293,7 +1290,7 @@ async function buyVIP(days, priceUSD) {
 }
 
 // ============================================================
-// АВАТАРКИ (исправленные)
+// АВАТАРКИ
 // ============================================================
 async function setFreeAvatar(url) {
     console.log('[Reckon] setFreeAvatar вызвана с URL: ' + url);
