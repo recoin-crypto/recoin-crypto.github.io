@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия с корректной обработкой касаний)
+// site.js — Reckon Coin (полная версия с поддержкой мобильных устройств и VIP-выбором)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -34,7 +34,7 @@ let currentPeriod = '1h';
 let allHistoryData = [];
 let freeAvatars = [];
 let friendsListCache = {};
-let selectedVipPlan = null;
+let selectedVipPlan = null; // для VIP
 
 // === ВАЛЮТА ===
 let selectedCurrency = localStorage.getItem('recoin_currency') || 'USD';
@@ -293,6 +293,7 @@ async function updateUIElements() {
                 const date = new Date(expiry);
                 vipExpiryEl.textContent = 'Действует до: ' + date.toLocaleString();
                 vipExpiryEl.style.display = 'block';
+                // Проверяем авто-продление (если включено и осталось < 3 дней)
                 if (currentUser.auto_renew && (expiry - Date.now() < 3 * 24 * 60 * 60 * 1000)) {
                     autoRenewVIP();
                 }
@@ -978,54 +979,31 @@ function previewAvatar(url) {
 }
 
 // ============================================================
-// 9. МОДАЛКИ И ФОРМЫ (исправленная обработка касаний)
+// 9. МОДАЛКИ И ФОРМЫ (с поддержкой мобильных и VIP-выбором)
 // ============================================================
 function setupModals() {
     try {
-        // === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ КОРРЕКТНОЙ ОБРАБОТКИ КАСАНИЙ ===
-        function addSafeEvent(element, callback) {
+        // Определяем, мобильное ли устройство, чтобы использовать правильные события
+        const isMobile = isMobileDevice();
+
+        // Вспомогательная функция для добавления обработчиков
+        function addEvent(element, callback) {
             if (!element) return;
-            let touchStartX = 0, touchStartY = 0;
-            let isSwiping = false;
+            if (isMobile) {
+                // Для мобильных используем touchstart (без preventDefault, чтобы не блокировать чекбоксы)
+                element.addEventListener('touchstart', callback, { passive: true });
+                // Также оставляем click для надёжности (но на мобильных он срабатывает с задержкой)
+                element.addEventListener('click', callback);
+            } else {
+                // Для десктопа только click
+                element.addEventListener('click', callback);
+            }
+        }
 
-            // На мобильных используем touchend с проверкой на свайп
-            element.addEventListener('touchstart', function(e) {
-                const touch = e.touches[0];
-                touchStartX = touch.clientX;
-                touchStartY = touch.clientY;
-                isSwiping = false;
-            }, { passive: true });
-
-            element.addEventListener('touchmove', function(e) {
-                const touch = e.touches[0];
-                const deltaX = Math.abs(touch.clientX - touchStartX);
-                const deltaY = Math.abs(touch.clientY - touchStartY);
-                if (deltaX > 10 || deltaY > 10) {
-                    isSwiping = true;
-                }
-            }, { passive: true });
-
-            element.addEventListener('touchend', function(e) {
-                if (!isSwiping) {
-                    e.preventDefault();
-                    callback(e);
-                }
-            }, { passive: false });
-
-            // Для десктопа и мобильных (в качестве запасного) используем click
-            element.addEventListener('click', function(e) {
-                // На мобильных click срабатывает с задержкой, но для десктопа это основной способ
-                // Если это мобильное устройство, мы уже обработали touchend, поэтому игнорируем click, если он идёт после touchend
-                // Для простоты оставляем оба, но на мобильных они могут срабатывать дважды.
-                // Проверяем, не было ли уже обработки через touchend (можно добавить флаг)
-                // Чтобы избежать двойного срабатывания, используем setTimeout
-                if (isMobileDevice()) {
-                    // На мобильных клик может приходить через 300 мс после touchend
-                    // Мы уже обработали touchend, поэтому игнорируем click
-                    return;
-                }
-                callback(e);
-            });
+        // Для чекбоксов используем только click (на мобильных они работают нормально)
+        function addEventForCheckbox(element, callback) {
+            if (!element) return;
+            element.addEventListener('click', callback);
         }
 
         function openWithCaptcha(id, captchaId) {
@@ -1050,7 +1028,7 @@ function setupModals() {
         buttonMap.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
-                addSafeEvent(el, function(e) {
+                addEvent(el, function(e) {
                     if (item.id === 'settings-btn' || item.id === 'friends-btn' || item.id === 'vip-btn') {
                         if (!currentUser) { showAuthModal(); return; }
                         openModal(item.modal);
@@ -1065,7 +1043,7 @@ function setupModals() {
 
         // === ЗАКРЫТИЕ МОДАЛОК (крестики) ===
         document.querySelectorAll('.modal-close').forEach(el => {
-            addSafeEvent(el, function() {
+            addEvent(el, function() {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
@@ -1073,7 +1051,7 @@ function setupModals() {
 
         // === ЗАКРЫТИЕ ПО КЛИКУ ВНЕ МОДАЛКИ ===
         document.querySelectorAll('.modal').forEach(modal => {
-            addSafeEvent(modal, function(e) {
+            addEvent(modal, function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -1096,7 +1074,7 @@ function setupModals() {
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) addSafeEvent(logoutBtn, logout);
+        if (logoutBtn) addEvent(logoutBtn, logout);
 
         // === РАСЧЁТ КОМИССИЙ ===
         const transferAmount = document.getElementById('transfer-amount');
@@ -1137,35 +1115,41 @@ function setupModals() {
         const agreementCloseBtn = document.getElementById('agreement-close-btn');
 
         if (authForm) authForm.addEventListener('submit', handleAuthSubmit);
-        if (authSwitch) addSafeEvent(authSwitch, toggleAuthMode);
+        if (authSwitch) addEvent(authSwitch, toggleAuthMode);
         if (showAgreement) {
-            addSafeEvent(showAgreement, function(e) {
+            addEvent(showAgreement, function(e) {
                 e.preventDefault();
                 if (agreementModal) agreementModal.classList.add('active');
             });
         }
-        if (agreementClose) addSafeEvent(agreementClose, function() {
+        if (agreementClose) addEvent(agreementClose, function() {
             if (agreementModal) agreementModal.classList.remove('active');
         });
-        if (agreementCloseBtn) addSafeEvent(agreementCloseBtn, function() {
+        if (agreementCloseBtn) addEvent(agreementCloseBtn, function() {
             if (agreementModal) agreementModal.classList.remove('active');
         });
 
-        // === МОБИЛЬНОЕ МЕНЮ (бургер) ===
+        // === МОБИЛЬНОЕ МЕНЮ ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            // Используем только click, как в старой версии
+            // Используем только click для надёжности
             mobileToggle.addEventListener('click', function(e) {
                 e.stopPropagation();
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
-                console.log('Меню переключено через click');
+                console.log('Меню переключено');
             });
+            // Для мобильных добавляем touchstart
+            mobileToggle.addEventListener('touchstart', function(e) {
+                e.stopPropagation();
+                const nav = document.querySelector('.nav');
+                if (nav) nav.classList.toggle('open');
+                console.log('Меню переключено (touch)');
+            }, { passive: true });
         }
-
         // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
         document.querySelectorAll('.nav a[data-page]').forEach(link => {
-            addSafeEvent(link, function(e) {
+            addEvent(link, function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -1187,7 +1171,7 @@ function setupModals() {
         // === КНОПКИ "УЗНАТЬ БОЛЬШЕ" ===
         document.querySelectorAll('[data-page]').forEach(el => {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            addSafeEvent(el, function(e) {
+            addEvent(el, function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
@@ -1199,7 +1183,7 @@ function setupModals() {
 
         // === ВАЛЮТА ===
         document.querySelectorAll('.currency-btn').forEach(btn => {
-            addSafeEvent(btn, function() {
+            addEvent(btn, function() {
                 const currency = this.dataset.currency;
                 if (currency) setCurrency(currency);
             });
@@ -1207,34 +1191,37 @@ function setupModals() {
 
         // === АВАТАРКИ ===
         const saveAvatarBtn = document.getElementById('save-avatar-btn');
-        if (saveAvatarBtn) addSafeEvent(saveAvatarBtn, saveAvatar);
+        if (saveAvatarBtn) addEvent(saveAvatarBtn, saveAvatar);
 
         // === СКРЫТИЕ БАЛАНСА ===
         const saveVisibilityBtn = document.getElementById('save-balance-visibility');
-        if (saveVisibilityBtn) addSafeEvent(saveVisibilityBtn, saveBalanceVisibility);
+        if (saveVisibilityBtn) addEvent(saveVisibilityBtn, saveBalanceVisibility);
 
         // === ВКЛАДКИ ДРУЗЕЙ ===
         const acceptedTab = document.getElementById('friends-tab-accepted');
         const requestsTab = document.getElementById('friends-tab-requests');
-        if (acceptedTab) addSafeEvent(acceptedTab, function() { renderFriends('accepted'); });
-        if (requestsTab) addSafeEvent(requestsTab, function() { renderFriends('requests'); });
+        if (acceptedTab) addEvent(acceptedTab, function() { renderFriends('accepted'); });
+        if (requestsTab) addEvent(requestsTab, function() { renderFriends('requests'); });
 
         // === ДОБАВЛЕНИЕ ДРУГА ===
         const addFriendBtn = document.getElementById('add-friend-btn');
-        if (addFriendBtn) addSafeEvent(addFriendBtn, sendFriendRequest);
+        if (addFriendBtn) addEvent(addFriendBtn, sendFriendRequest);
 
-        // === VIP ===
+        // === VIP ЛОГИКА С ВЫБОРОМ ПЛАНА ===
         selectedVipPlan = null;
         const buyVipBtn = document.getElementById('buy-vip-btn');
 
+        // Обработчики для карточек VIP-планов
         document.querySelectorAll('.vip-plan').forEach(el => {
-            addSafeEvent(el, function(e) {
+            addEvent(el, function(e) {
                 e.stopPropagation();
+                // Снимаем активный класс со всех
                 document.querySelectorAll('.vip-plan').forEach(p => p.classList.remove('active'));
                 this.classList.add('active');
                 selectedVipPlan = this;
                 const days = parseInt(this.dataset.days);
                 const price = parseFloat(this.dataset.price);
+                // Проверка на подмену data-days (защита)
                 if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
                     GradusWeb.notify.warning('Некорректные данные плана');
                     selectedVipPlan = null;
@@ -1246,14 +1233,16 @@ function setupModals() {
             });
         });
 
+        // Кнопка "Купить VIP"
         if (buyVipBtn) {
-            addSafeEvent(buyVipBtn, function() {
+            addEvent(buyVipBtn, function() {
                 if (!selectedVipPlan) {
                     GradusWeb.notify.warning('Выберите план');
                     return;
                 }
                 const days = parseInt(selectedVipPlan.dataset.days);
                 const price = parseFloat(selectedVipPlan.dataset.price);
+                // Повторная проверка на подмену
                 if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
                     GradusWeb.notify.error('Некорректные данные плана');
                     return;
@@ -1273,7 +1262,7 @@ function setupModals() {
         // === АВТО-ПРОДЛЕНИЕ VIP ===
         const saveAutoRenewBtn = document.getElementById('save-auto-renew');
         if (saveAutoRenewBtn) {
-            addSafeEvent(saveAutoRenewBtn, async function() {
+            addEvent(saveAutoRenewBtn, async function() {
                 if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
                 const period = parseInt(document.getElementById('auto-renew-period').value);
                 await writeFirebase('users/' + currentUser.uid + '/auto_renew_period', period);
