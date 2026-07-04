@@ -955,24 +955,29 @@ function previewAvatar(url) {
 // ============================================================
 // 9. МОДАЛКИ И ФОРМЫ (только click, без touchstart)
 // ============================================================
-
-// Определяем, сенсорное ли устройство (делаем один раз)
+// Определяем тип устройства ОДИН РАЗ
 const isTouchDevice = ('ontouchstart' in window) ||
                       (navigator.maxTouchPoints > 0) ||
                       (navigator.msMaxTouchPoints > 0);
+
+console.log('[Reckon] isTouchDevice:', isTouchDevice); // для диагностики
 
 function addEventListeners(element, callback) {
     if (!element) return;
 
     if (isTouchDevice) {
-        // На сенсорных экранах — touchstart с отменой последующего click
+        // На сенсорных экранах – мгновенный touchstart без последующего click
         element.addEventListener('touchstart', function(e) {
+            console.log('[Reckon] touchstart на элементе', element.id || element.className);
             callback.call(this, e);
-            e.preventDefault();        // ← подавляет генерацию click после касания
-        }, { passive: false });       // ← обязательно для возможности preventDefault
+            e.preventDefault();       // отменяет генерацию click
+        }, { passive: false });      // обязательно для preventDefault
     } else {
-        // На обычных ПК — только click
-        element.addEventListener('click', callback);
+        // На обычных ПК – только click
+        element.addEventListener('click', function(e) {
+            console.log('[Reckon] click на элементе', element.id || element.className);
+            callback.call(this, e);
+        });
     }
 }
 
