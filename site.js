@@ -956,26 +956,30 @@ function previewAvatar(url) {
 // 9. МОДАЛКИ И ФОРМЫ (корректная обработка событий)
 // ============================================================
 
-// Определяем, сенсорное ли устройство
-const isTouchDevice = ('ontouchstart' in window) ||
-                      (navigator.maxTouchPoints > 0) ||
-                      (navigator.msMaxTouchPoints > 0);
+//const isTouchDevice = ('ontouchstart' in window) ||
+//                      (navigator.maxTouchPoints > 0) ||
+//                      (navigator.msMaxTouchPoints > 0);
+//
+//function addEventListeners(element, callback) {
+//    if (!element) return;
+//
+//    if (isTouchDevice) {
+//        element.addEventListener('touchstart', function(e) {
+//            callback.call(this, e);
+//            e.preventDefault();
+//        }, { passive: false });
+//    } else {
+//        element.addEventListener('click', function(e) {
+//            callback.call(this, e);
+//        });
+//    }
+//}
 
-// Универсальное добавление обработчика: на тач-устройствах – touchstart с подавлением click,
-// на десктопах – обычный click
 function addEventListeners(element, callback) {
     if (!element) return;
-
-    if (isTouchDevice) {
-        element.addEventListener('touchstart', function(e) {
-            callback.call(this, e);
-            e.preventDefault();  // подавляем последующий click
-        }, { passive: false });
-    } else {
-        element.addEventListener('click', function(e) {
-            callback.call(this, e);
-        });
-    }
+    element.addEventListener('click', function(e) {
+        callback.call(this, e);
+    });
 }
 
 function setupModals() {
