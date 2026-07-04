@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (расширенная версия)
+// site.js — Reckon Coin (финальная версия с друзьями, VIP, аватарками, жалобами)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -27,10 +27,12 @@ let isSubmitting = false;
 let updateInterval = null;
 let currentPeriod = '1h';
 let allHistoryData = [];
+let freeAvatars = [];
+let friendsListCache = {};
 
 // === ВАЛЮТА ===
 let selectedCurrency = localStorage.getItem('recoin_currency') || 'USD';
-let exchangeRates = { USD: 1, RUB: 90, BYN: 3.2 }; // fallback
+let exchangeRates = { USD: 1, RUB: 90, BYN: 3.2 };
 
 // === ЗАГРУЗКА РЕАЛЬНЫХ КУРСОВ ===
 async function loadExchangeRates() {
@@ -38,51 +40,47 @@ async function loadExchangeRates() {
         const cached = localStorage.getItem('recoin_rates');
         if (cached) {
             const data = JSON.parse(cached);
-            if (Date.now() - data.timestamp < 3600000) { // 1 час
+            if (Date.now() - data.timestamp < 3600000) {
                 exchangeRates = data.rates;
                 return;
             }
         }
-        // Запрос к бесплатному API
         const response = await GradusServer.get('https://api.exchangerate-api.com/v4/latest/USD');
         if (response) {
             const json = JSON.parse(response);
             const rates = json.rates;
             exchangeRates = {
                 USD: 1,
-                RUB: rates.RUB || 90,
+                RUB: rates.RUB || 78,
                 BYN: rates.BYN || 3.2
             };
             localStorage.setItem('recoin_rates', JSON.stringify({ rates: exchangeRates, timestamp: Date.now() }));
         }
     } catch (e) {
-        console.warn('[Reckon] Не удалось загрузить курсы валют, используются fallback:', e);
-        // fallback уже установлены
+        console.warn('[Reckon] Не удалось загрузить курсы валют:', e);
     }
 }
 
-// === ФУНКЦИИ ДЛЯ РАБОТЫ С ВАЛЮТОЙ ===
-function getCurrencyRate() {
-    return exchangeRates[selectedCurrency] || 1;
+//function logToScreen(msg) {
+//    const el = document.getElementById('debug-log');
+//    if (el) {
+//        el.classList.add('active');
+//        el.textContent += msg + '\n';
+//        el.scrollTop = el.scrollHeight;
+//    }
+//    console.log('[Reckon] ' + msg);
+//}
+
+function logToScreen(msg) {
+    console.log('[Reckon] Deleted log');
 }
 
-function getCurrencySymbol() {
-    const symbols = { USD: '$', RUB: '₽', BYN: 'Br' };
-    return symbols[selectedCurrency] || '$';
-}
-
-function formatCurrency(amountUSD) {
-    const rate = getCurrencyRate();
-    const symbol = getCurrencySymbol();
-    const amount = amountUSD * rate;
-    return symbol + amount.toFixed(2);
-}
-
-function formatPrice(priceUSD) {
-    const rate = getCurrencyRate();
-    const symbol = getCurrencySymbol();
-    return symbol + (priceUSD * rate).toFixed(6);
-}
+// === ФУНКЦИИ ВАЛЮТ ===
+function getCurrencyRate() { return exchangeRates[selectedCurrency] || 1; }
+function getCurrencySymbol() { const s = { USD: '$', RUB: '₽', BYN: 'Br' }; return s[selectedCurrency] || '$'; }
+function formatCurrency(amountUSD) { const rate = getCurrencyRate(); const symbol = getCurrencySymbol(); return symbol + (amountUSD * rate).toFixed(2); }
+function formatPrice(priceUSD) { const rate = getCurrencyRate(); const symbol = getCurrencySymbol(); return symbol + (priceUSD * rate).toFixed(6); }
+function formatBalanceUSD(amountUSD) { return '$' + amountUSD.toFixed(3); }
 
 // ============================================================
 // 1. FIREBASE
@@ -97,7 +95,6 @@ async function readFirebase(path) {
         return null;
     }
 }
-
 async function writeFirebase(path, data) {
     const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
     try {
@@ -108,7 +105,6 @@ async function writeFirebase(path, data) {
         return false;
     }
 }
-
 async function pushFirebase(path, data) {
     const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
     try {
@@ -119,6 +115,16 @@ async function pushFirebase(path, data) {
         return null;
     }
 }
+async function deleteFirebase(path) {
+    const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
+    try {
+        await GradusServer.firebaseSet(url, null);
+        return true;
+    } catch(e) {
+        console.error('[Reckon] deleteFirebase ошибка:', e);
+        return false;
+    }
+}
 
 // ============================================================
 // 2. ОБРАБОТЧИКИ GRADUS
@@ -127,13 +133,11 @@ function registerHandlers() {
     try {
         GradusStatic.registerHandler('get_price', async () => {
             const d = await readFirebase('price_current');
-            if (d && d.price) {
-                return formatPrice(d.price);
-            }
+            if (d && d.price) return formatPrice(d.price);
             return getCurrencySymbol() + '0.000000';
         });
     } catch (e) {
-        console.warn('[Reckon] registerHandlers не удалось (GradusStatic может отсутствовать):', e);
+        console.warn('[Reckon] registerHandlers не удалось:', e);
     }
 }
 
@@ -224,6 +228,8 @@ async function updateUIElements() {
     const avatarImg = document.getElementById('avatar-img');
     const avatarEmoji = document.querySelector('.avatar-emoji');
     const commissionPoolEl = document.getElementById('commission-pool');
+    const vipBadgeEl = document.getElementById('vip-badge');
+    const vipExpiryEl = document.getElementById('vip-expiry');
 
     if (!usernameEl) return;
 
@@ -231,7 +237,7 @@ async function updateUIElements() {
         usernameEl.textContent = 'Гость';
         if (uidEl) uidEl.textContent = 'UID: —';
         if (coinBalanceEl) coinBalanceEl.textContent = '0.00';
-        if (usdBalanceEl) usdBalanceEl.textContent = '$0.00';
+        if (usdBalanceEl) usdBalanceEl.textContent = '$0.000';
         if (priceEl) priceEl.textContent = '$0.000000';
         if (marketCapEl) marketCapEl.textContent = '$0.00';
         if (volumeEl) volumeEl.textContent = '$0.00';
@@ -241,6 +247,8 @@ async function updateUIElements() {
         if (avatarImg) avatarImg.style.display = 'none';
         if (avatarEmoji) avatarEmoji.style.display = 'inline-block';
         if (commissionPoolEl) commissionPoolEl.textContent = '0.00 RECKON ($0.00)';
+        if (vipBadgeEl) vipBadgeEl.style.display = 'none';
+        if (vipExpiryEl) vipExpiryEl.style.display = 'none';
         return;
     }
 
@@ -255,44 +263,60 @@ async function updateUIElements() {
         let totalUsdOnWallets = 0;
         for (const uid in allUsers) {
             const user = allUsers[uid];
-            if (user && user.balance_coins) {
-                totalCoinsOnWallets += user.balance_coins;
-            }
-            if (user && user.balance_usd) {
-                totalUsdOnWallets += user.balance_usd;
-            }
+            if (user && user.balance_coins) totalCoinsOnWallets += user.balance_coins;
+            if (user && user.balance_usd) totalUsdOnWallets += user.balance_usd;
         }
 
         const totalSupply = freeSupply + totalCoinsOnWallets + commissionPool;
         let priceUSD = priceData && priceData.price ? priceData.price : 0;
-        const symbol = getCurrencySymbol();
 
         // Цена
         if (priceEl) priceEl.textContent = formatPrice(priceUSD);
 
-        // Рыночная капитализация = цена * totalSupply + сумма USD на всех кошельках
+        // Рыночная капитализация
         const marketCapUSD = (priceUSD * totalSupply) + totalUsdOnWallets;
         if (marketCapEl) marketCapEl.textContent = formatCurrency(marketCapUSD);
 
-        // Объём за 24ч (сумма usd всех транзакций за последние сутки)
+        // Объём за 24ч
         const volumeUSD = await calculateDailyVolume();
         if (volumeEl) volumeEl.textContent = formatCurrency(volumeUSD);
 
         // Всего монет
         if (totalSupplyEl) totalSupplyEl.textContent = totalSupply.toFixed(0);
 
-        // Имя и UID
-        if (usernameEl) usernameEl.textContent = currentUser.username || currentUser.uid;
+        // Имя и UID с VIP-значком
+        let vipBadge = isVIPActive(currentUser) ? ' 💎' : '';
+        if (usernameEl) usernameEl.textContent = (currentUser.username || currentUser.uid) + vipBadge;
         if (uidEl) uidEl.textContent = 'UID: ' + currentUser.uid;
 
-        // Балансы
+        // VIP-значок
+        if (vipBadgeEl) {
+            vipBadgeEl.style.display = isVIPActive(currentUser) ? 'inline-block' : 'none';
+        }
+
+        // VIP срок действия
+        if (vipExpiryEl) {
+            if (isVIPActive(currentUser)) {
+                const expiry = currentUser.vip_expires || 0;
+                const date = new Date(expiry);
+                vipExpiryEl.textContent = 'Действует до: ' + date.toLocaleString();
+                vipExpiryEl.style.display = 'block';
+                // Проверяем авто-продление (если включено и осталось < 3 дней)
+                if (currentUser.auto_renew && (expiry - Date.now() < 3 * 24 * 60 * 60 * 1000)) {
+                    autoRenewVIP();
+                }
+            } else {
+                vipExpiryEl.style.display = 'none';
+            }
+        }
+
+        // Балансы (в выбранной валюте)
         if (coinBalanceEl) coinBalanceEl.textContent = currentUser.balance_coins.toFixed(2);
         if (usdBalanceEl) usdBalanceEl.textContent = formatCurrency(currentUser.balance_usd);
 
-        // Процент изменения (от предпоследней и последней цены)
         await updatePriceChange();
 
-        // История транзакций с пересчётом в валюту
+        // История транзакций
         const history = await readFirebase('users/' + currentUser.uid + '/transactions');
         let html = '';
         if (history && Object.keys(history).length > 0) {
@@ -354,7 +378,6 @@ async function updateUIElements() {
             }
         }
 
-        // Обновляем UI валюты (подсветка активной кнопки)
         updateCurrencyUI();
 
     } catch(e) {
@@ -410,7 +433,6 @@ async function updatePriceChange() {
         if (!history) { priceChangeEl.textContent = '▲ 0.00%'; return; }
         const entries = Object.values(history).sort((a,b) => a.timestamp - b.timestamp);
         if (entries.length < 2) { priceChangeEl.textContent = '▲ 0.00%'; return; }
-        // Берём две последние записи
         const last = entries[entries.length - 1];
         const prev = entries[entries.length - 2];
         if (!last || !prev || prev.price === 0) {
@@ -428,7 +450,7 @@ async function updatePriceChange() {
 }
 
 // ============================================================
-// 5. АВТОРИЗАЦИЯ (с аватаркой)
+// 5. АВТОРИЗАЦИЯ
 // ============================================================
 function showAuthModal() {
     const modal = document.getElementById('auth-modal');
@@ -451,10 +473,7 @@ function toggleAuthMode() {
         if (submitBtn) submitBtn.textContent = 'Войти';
         if (switchBtn) switchBtn.textContent = 'Переключиться на регистрацию';
         if (repeatGroup) repeatGroup.style.display = 'none';
-        if (pwdRepeat) {
-            pwdRepeat.removeAttribute('required');
-            pwdRepeat.value = '';
-        }
+        if (pwdRepeat) { pwdRepeat.removeAttribute('required'); pwdRepeat.value = ''; }
     } else {
         if (title) title.textContent = 'Регистрация';
         if (submitBtn) submitBtn.textContent = 'Зарегистрироваться';
@@ -538,7 +557,11 @@ async function registerUser(username, hashedPassword, email, phone) {
         moder: false,
         transactions: {},
         lastPriceChangeDate: 0,
-        avatar: ''
+        avatar: '',
+        vip_expires: 0,
+        hide_balance: false,
+        auto_renew: false,
+        auto_renew_period: 0
     };
     await writeFirebase('users/' + newUid, newUser);
     await loadUser(newUid);
@@ -577,7 +600,11 @@ async function loadUser(uid) {
         moder: userData.moder || false,
         transactions: userData.transactions || {},
         lastPriceChangeDate: userData.lastPriceChangeDate || 0,
-        avatar: userData.avatar || ''
+        avatar: userData.avatar || '',
+        vip_expires: userData.vip_expires || 0,
+        hide_balance: userData.hide_balance || false,
+        auto_renew: userData.auto_renew || false,
+        auto_renew_period: userData.auto_renew_period || 0
     };
     await GradusWeb.secretStorage.set('uid', uid);
     const logoutBtn = document.getElementById('logout-btn');
@@ -597,7 +624,7 @@ async function logout() {
 }
 
 // ============================================================
-// 6. ЦЕНА И ГРАФИК (с учётом валюты)
+// 6. ЦЕНА И ГРАФИК
 // ============================================================
 async function initChart() {
     try {
@@ -682,13 +709,12 @@ function setupChartControls() {
 }
 
 // ============================================================
-// 7. НАСТРОЙКИ ВАЛЮТЫ И АВАТАРКИ
+// 7. НАСТРОЙКИ ВАЛЮТЫ, АВАТАРКИ, СКРЫТИЯ БАЛАНСА
 // ============================================================
 function updateCurrencyUI() {
     document.querySelectorAll('.currency-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.currency === selectedCurrency);
     });
-    // Обновляем символ валюты в интерфейсе (можно добавить классы)
 }
 
 function setCurrency(currency) {
@@ -698,44 +724,287 @@ function setCurrency(currency) {
     updateCurrencyUI();
     updateUIElements();
     updateChartForPeriod(currentPeriod);
-    // Также обновим get_price плейсхолдер (Gradus обновит автоматически при следующем рендере)
+    GradusWeb.notify.success('Валюта изменена на ' + currency);
 }
 
-async function saveAvatar() {
-    const input = document.getElementById('avatar-url-input');
-    const url = input?.value.trim();
-    if (!url) {
-        GradusWeb.notify.warning('Введите URL картинки');
+// === АВАТАРКИ ===
+async function loadFreeAvatars() {
+    try {
+        const data = await readFirebase('avatars');
+        if (data) {
+            freeAvatars = Object.values(data);
+        } else {
+            // fallback
+            freeAvatars = [
+                'https://i.pravatar.cc/150?img=1',
+                'https://i.pravatar.cc/150?img=2',
+                'https://i.pravatar.cc/150?img=3',
+                'https://i.pravatar.cc/150?img=4',
+                'https://i.pravatar.cc/150?img=5',
+                'https://i.pravatar.cc/150?img=6',
+                'https://i.pravatar.cc/150?img=7',
+                'https://i.pravatar.cc/150?img=8',
+                'https://i.pravatar.cc/150?img=9',
+                'https://i.pravatar.cc/150?img=10',
+                'https://i.pravatar.cc/150?img=11',
+                'https://i.pravatar.cc/150?img=12',
+                'https://i.pravatar.cc/150?img=13',
+                'https://i.pravatar.cc/150?img=14',
+                'https://i.pravatar.cc/150?img=15'
+            ];
+        }
+    } catch (e) { console.warn('Не удалось загрузить бесплатные аватарки'); freeAvatars = []; }
+}
+
+function renderFreeAvatars() {
+    const container = document.getElementById('free-avatars-container');
+    if (!container) return;
+    if (freeAvatars.length === 0) {
+        container.innerHTML = '<p>Нет доступных аватарок</p>';
         return;
     }
-    if (!currentUser) {
-        GradusWeb.notify.warning('Войдите в аккаунт');
+    let html = '';
+    freeAvatars.forEach(url => {
+        html += `<div style="cursor: pointer; border: 2px solid transparent; padding: 4px; border-radius: 50%;" onclick="setFreeAvatar('${url}')">
+            <img src="${url}" style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 50%;">
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+
+
+// === СКРЫТИЕ БАЛАНСА (только VIP) ===
+async function saveBalanceVisibility() {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    if (!isVIPActive(currentUser)) {
+        GradusWeb.notify.warning('Скрытие баланса доступно только с VIP подпиской');
         return;
     }
-    await writeFirebase('users/' + currentUser.uid + '/avatar', url);
-    currentUser.avatar = url;
+    const checkbox = document.getElementById('hide-balance-checkbox');
+    const hide = checkbox.checked;
+    await writeFirebase('users/' + currentUser.uid + '/hide_balance', hide);
+    currentUser.hide_balance = hide;
+    GradusWeb.notify.success('Настройка сохранена');
     await updateUIElements();
-    GradusWeb.notify.success('Аватарка сохранена!');
-    const modal = document.getElementById('settings-modal');
-    if (modal) modal.classList.remove('active');
 }
 
 // ============================================================
-// 8. МОДАЛКИ И ФОРМЫ (с уведомлениями)
+// 8. VIP И ДРУЗЬЯ
+// ============================================================
+
+// === VIP ===
+function isVIPActive(user) {
+    if (!user) return false;
+    if (user.ban === true) return false;
+    if (!user.vip_expires) return false;
+    return user.vip_expires > Date.now();
+}
+
+
+
+async function updateVIPStatus() {
+    const statusEl = document.getElementById('vip-status');
+    if (!statusEl) return;
+    if (!currentUser) { statusEl.textContent = 'Статус: не авторизован'; return; }
+    if (currentUser.ban) {
+        statusEl.textContent = 'VIP заморожен (аккаунт заблокирован)';
+        return;
+    }
+    const vipActive = isVIPActive(currentUser);
+    const expiry = currentUser.vip_expires || 0;
+    const remaining = Math.max(0, expiry - Date.now());
+    const days = Math.floor(remaining / (24*60*60*1000));
+    const hours = Math.floor((remaining % (24*60*60*1000)) / (60*60*1000));
+    if (vipActive && days > 0) {
+        statusEl.textContent = `VIP активен: ${days} дн. ${hours} ч.`;
+    } else if (vipActive && days === 0) {
+        statusEl.textContent = 'VIP активен (менее дня)';
+    } else {
+        statusEl.textContent = 'VIP не активен';
+    }
+}
+
+// === АВТО-ПРОДЛЕНИЕ VIP ===
+async function autoRenewVIP() {
+    if (!currentUser) return;
+    if (!currentUser.auto_renew) return;
+    const period = currentUser.auto_renew_period || 30;
+    const price = period === 30 ? 0.40 : 2.00;
+    const discountedPrice = price * 0.8; // 20% скидка при продлении
+    if (currentUser.balance_usd < discountedPrice) {
+        GradusWeb.notify.warning('Недостаточно средств для авто-продления VIP');
+        return;
+    }
+    const newBalance = currentUser.balance_usd - discountedPrice;
+    await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalance);
+    currentUser.balance_usd = newBalance;
+    const now = Date.now();
+    const currentExpiry = currentUser.vip_expires || 0;
+    const newExpiry = Math.max(currentExpiry, now) + period * 24 * 60 * 60 * 1000;
+    await writeFirebase('users/' + currentUser.uid + '/vip_expires', newExpiry);
+    currentUser.vip_expires = newExpiry;
+    GradusWeb.notify.success('VIP автоматически продлён на ' + period + ' дней!');
+    await updateUIElements();
+}
+
+// === ДРУЗЬЯ ===
+async function renderFriends(tab = 'accepted') {
+    const listEl = document.getElementById('friends-list');
+    if (!listEl) return;
+    if (!currentUser) { listEl.innerHTML = '<p>Войдите в аккаунт</p>'; return; }
+
+    let friendsData = await readFirebase('users/' + currentUser.uid + '/friends');
+    if (!friendsData) friendsData = { accepted: {}, requests: {} };
+
+    let entries = [];
+    if (tab === 'accepted') {
+        entries = Object.entries(friendsData.accepted || {});
+    } else {
+        entries = Object.entries(friendsData.requests || {});
+    }
+
+    if (entries.length === 0) {
+        listEl.innerHTML = '<p>Нет ' + (tab === 'accepted' ? 'друзей' : 'заявок') + '</p>';
+        return;
+    }
+
+    let html = '';
+    for (const [friendUid, status] of entries) {
+        const friendData = await readFirebase('users/' + friendUid);
+        if (!friendData) continue;
+
+        const isBanned = friendData.ban === true;
+        const isVIP = isVIPActive(friendData);
+        const vipLabel = isVIP ? ' 💎' : '';
+        const banLabel = isBanned ? ' <span style="background: red; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px;">Заблокирован ✖</span>' : '';
+
+        const displayName = friendData.username || friendUid;
+
+        let avatarHtml = friendData.avatar
+            ? `<img src="${friendData.avatar}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; cursor: pointer;" onclick="previewAvatar('${friendData.avatar}')">`
+            : `<div style="width: 40px; height: 40px; border-radius: 50%; background: #2a2a3a; display: flex; align-items: center; justify-content: center; font-size: 20px;">👤</div>`;
+
+        let balanceDisplay = '';
+        if (friendData.hide_balance) {
+            balanceDisplay = '0.00 RECKON / $0.000';
+        } else {
+            balanceDisplay = friendData.balance_coins.toFixed(2) + ' RECKON / ' + formatBalanceUSD(friendData.balance_usd);
+        }
+
+        html += `
+            <div style="display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #2a2a3a;">
+                ${avatarHtml}
+                <div style="flex: 1;">
+                    <div><strong>${displayName}</strong>${vipLabel}${banLabel}</div>
+                    <div style="font-size: 12px; color: #888;">UID: ${friendUid}</div>
+                    <div style="font-size: 12px; color: #aaa;">${balanceDisplay}</div>
+                </div>
+                <div>
+                    ${tab === 'accepted' ? `<button class="btn btn-sm" onclick="transferToFriend('${friendUid}')">Перевести</button>` : ''}
+                    ${tab === 'accepted' ? `<button class="btn btn-sm btn-danger" onclick="removeFriend('${friendUid}')">Удалить</button>` : ''}
+                    ${tab === 'accepted' ? `<button class="btn btn-sm btn-warning" onclick="reportFriend('${friendUid}')">⚠️ Жалоба</button>` : ''}
+                    ${tab === 'requests' ? `<button class="btn btn-sm btn-success" onclick="acceptFriendRequest('${friendUid}')">Принять</button>` : ''}
+                    ${tab === 'requests' ? `<button class="btn btn-sm btn-danger" onclick="rejectFriendRequest('${friendUid}')">Отклонить</button>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    listEl.innerHTML = html;
+}
+
+async function sendFriendRequest() {
+    const input = document.getElementById('add-friend-input');
+    const friendUid = input?.value.trim();
+    if (!friendUid) { GradusWeb.notify.warning('Введите UID друга'); return; }
+    if (friendUid === currentUser.uid) { GradusWeb.notify.warning('Нельзя добавить себя'); return; }
+
+    const friendData = await readFirebase('users/' + friendUid);
+    if (!friendData) { GradusWeb.notify.error('Пользователь не найден'); return; }
+
+    const friends = await readFirebase('users/' + currentUser.uid + '/friends');
+    if (friends && friends.accepted && friends.accepted[friendUid]) {
+        GradusWeb.notify.warning('Этот пользователь уже в друзьях');
+        return;
+    }
+    if (friends && friends.requests && friends.requests[friendUid]) {
+        GradusWeb.notify.warning('Заявка уже отправлена');
+        return;
+    }
+
+    await writeFirebase('users/' + friendUid + '/friends/requests/' + currentUser.uid, { timestamp: Date.now() });
+    GradusWeb.notify.success('Заявка отправлена');
+    input.value = '';
+}
+
+async function acceptFriendRequest(friendUid) {
+    const friendData = await readFirebase('users/' + currentUser.uid + '/friends/requests/' + friendUid);
+    if (!friendData) { GradusWeb.notify.error('Заявка не найдена'); return; }
+
+    await writeFirebase('users/' + currentUser.uid + '/friends/accepted/' + friendUid, { timestamp: Date.now() });
+    await deleteFirebase('users/' + currentUser.uid + '/friends/requests/' + friendUid);
+    await writeFirebase('users/' + friendUid + '/friends/accepted/' + currentUser.uid, { timestamp: Date.now() });
+    GradusWeb.notify.success('Друг добавлен');
+    renderFriends('accepted');
+}
+
+async function rejectFriendRequest(friendUid) {
+    await deleteFirebase('users/' + currentUser.uid + '/friends/requests/' + friendUid);
+    GradusWeb.notify.info('Заявка отклонена');
+    renderFriends('requests');
+}
+
+async function removeFriend(friendUid) {
+    if (!confirm('Удалить друга?')) return;
+    await deleteFirebase('users/' + currentUser.uid + '/friends/accepted/' + friendUid);
+    await deleteFirebase('users/' + friendUid + '/friends/accepted/' + currentUser.uid);
+    GradusWeb.notify.info('Друг удалён');
+    renderFriends('accepted');
+}
+
+// === ЖАЛОБА НА ДРУГА ===
+async function reportFriend(friendUid) {
+    if (!confirm('Подать жалобу на этого пользователя? Он будет удалён из друзей.')) return;
+    // Отправляем жалобу в support_requests
+    const complaint = {
+        uid: currentUser.uid,
+        type: 'friend_complaint',
+        target: friendUid,
+        text: 'Жалоба на друга (автоматическая)',
+        timestamp: Date.now(),
+        status: 'pending'
+    };
+    await pushFirebase('support_requests', complaint);
+    // Удаляем друга
+    await deleteFirebase('users/' + currentUser.uid + '/friends/accepted/' + friendUid);
+    await deleteFirebase('users/' + friendUid + '/friends/accepted/' + currentUser.uid);
+    GradusWeb.notify.success('Жалоба отправлена, друг удалён');
+    renderFriends('accepted');
+}
+
+function transferToFriend(friendUid) {
+    document.getElementById('transfer-to').value = friendUid;
+    openModal('transfer-modal');
+}
+
+function previewAvatar(url) {
+    const img = document.getElementById('avatar-preview-img');
+    if (img) { img.src = url; openModal('avatar-preview-modal'); }
+}
+
+// ============================================================
+// 9. МОДАЛКИ И ФОРМЫ (полная настройка)
 // ============================================================
 function setupModals() {
     try {
         function openWithCaptcha(id, captchaId) {
-            if (!currentUser) {
-                showAuthModal();
-                return;
-            }
+            if (!currentUser) { showAuthModal(); return; }
             openModal(id);
-            if (captchaId) {
-                generateCaptchaImage(captchaId);
-            }
+            if (captchaId) { generateCaptchaImage(captchaId); }
         }
 
+        // === КНОПКИ ОТКРЫТИЯ МОДАЛОК ===
         const buttonMap = [
             { id: 'deposit-btn', modal: 'deposit-modal', captcha: 'deposit-captcha' },
             { id: 'withdraw-btn', modal: 'withdraw-modal', captcha: 'withdraw-captcha' },
@@ -743,16 +1012,20 @@ function setupModals() {
             { id: 'support-btn', modal: 'support-modal', captcha: 'support-captcha' },
             { id: 'complaint-btn', modal: 'complaint-modal', captcha: 'complaint-captcha' },
             { id: 'exchange-btn', modal: 'exchange-modal', captcha: 'exchange-captcha' },
-            { id: 'settings-btn', modal: 'settings-modal', captcha: null }
+            { id: 'settings-btn', modal: 'settings-modal', captcha: null },
+            { id: 'friends-btn', modal: 'friends-modal', captcha: null },
+            { id: 'vip-btn', modal: 'vip-modal', captcha: null }
         ];
 
         buttonMap.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
-                el.addEventListener('click', () => {
-                    if (item.id === 'settings-btn') {
+                el.addEventListener('click', function(e) {
+                    if (item.id === 'settings-btn' || item.id === 'friends-btn' || item.id === 'vip-btn') {
                         if (!currentUser) { showAuthModal(); return; }
                         openModal(item.modal);
+                        if (item.id === 'friends-btn') renderFriends('accepted');
+                        if (item.id === 'vip-btn') updateVIPStatus();
                     } else {
                         openWithCaptcha(item.modal, item.captcha);
                     }
@@ -760,6 +1033,7 @@ function setupModals() {
             }
         });
 
+        // === ЗАКРЫТИЕ МОДАЛОК ===
         document.querySelectorAll('.modal-close').forEach(el => {
             el.addEventListener('click', function() {
                 const modal = this.closest('.modal');
@@ -775,7 +1049,7 @@ function setupModals() {
             });
         });
 
-        // Обработчики форм
+        // === ОБРАБОТЧИКИ ФОРМ ===
         const depositForm = document.getElementById('deposit-form');
         const withdrawForm = document.getElementById('withdraw-form');
         const transferForm = document.getElementById('transfer-form');
@@ -791,11 +1065,9 @@ function setupModals() {
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', logout);
-        }
+        if (logoutBtn) logoutBtn.addEventListener('click', logout);
 
-        // Расчёт комиссии для перевода
+        // === РАСЧЁТ КОМИССИЙ ===
         const transferAmount = document.getElementById('transfer-amount');
         if (transferAmount) {
             transferAmount.addEventListener('input', function() {
@@ -825,7 +1097,7 @@ function setupModals() {
             });
         }
 
-        // Авторизация
+        // === АВТОРИЗАЦИЯ ===
         const authForm = document.getElementById('auth-form');
         const authSwitch = document.getElementById('auth-switch');
         const showAgreement = document.getElementById('show-agreement-link');
@@ -852,7 +1124,7 @@ function setupModals() {
             });
         }
 
-        // Мобильное меню
+        // === МОБИЛЬНОЕ МЕНЮ ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
             mobileToggle.addEventListener('click', function() {
@@ -861,16 +1133,13 @@ function setupModals() {
             });
         }
 
-        // Навигационные ссылки
+        // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
         document.querySelectorAll('.nav a[data-page]').forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
-                if (requireAuth && !currentUser) {
-                    showAuthModal();
-                    return;
-                }
+                if (requireAuth && !currentUser) { showAuthModal(); return; }
                 const pages = {
                     'page-home': document.getElementById('page-home'),
                     'page-cabinet': document.getElementById('page-cabinet'),
@@ -885,6 +1154,7 @@ function setupModals() {
             });
         });
 
+        // === КНОПКИ "УЗНАТЬ БОЛЬШЕ" ===
         document.querySelectorAll('[data-page]').forEach(el => {
             if (el.tagName === 'A' && el.closest('.nav')) return;
             el.addEventListener('click', function(e) {
@@ -894,9 +1164,10 @@ function setupModals() {
             });
         });
 
+        // === КНОПКИ ГРАФИКА ===
         setupChartControls();
 
-        // Обработчики для выбора валюты
+        // === ВАЛЮТА ===
         document.querySelectorAll('.currency-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const currency = this.dataset.currency;
@@ -904,10 +1175,90 @@ function setupModals() {
             });
         });
 
-        // Сохранение аватарки
+        // === АВАТАРКИ ===
         const saveAvatarBtn = document.getElementById('save-avatar-btn');
-        if (saveAvatarBtn) {
-            saveAvatarBtn.addEventListener('click', saveAvatar);
+        if (saveAvatarBtn) saveAvatarBtn.addEventListener('click', saveAvatar);
+
+        // === СКРЫТИЕ БАЛАНСА ===
+        const saveVisibilityBtn = document.getElementById('save-balance-visibility');
+        if (saveVisibilityBtn) saveVisibilityBtn.addEventListener('click', saveBalanceVisibility);
+
+        // === ВКЛАДКИ ДРУЗЕЙ ===
+        document.getElementById('friends-tab-accepted')?.addEventListener('click', function() {
+            renderFriends('accepted');
+        });
+        document.getElementById('friends-tab-requests')?.addEventListener('click', function() {
+            renderFriends('requests');
+        });
+
+        // === ДОБАВЛЕНИЕ ДРУГА ===
+        document.getElementById('add-friend-btn')?.addEventListener('click', sendFriendRequest);
+
+        const buyVipBtn = document.getElementById('buy-vip-btn');
+        if (buyVipBtn) {
+            buyVipBtn.addEventListener('click', function() {
+                const firstPlan = document.querySelector('.vip-plan');
+                if (firstPlan) {
+                    firstPlan.click();
+                } else {
+                    GradusWeb.notify.warning('Нет доступных планов');
+                }
+            });
+        }
+
+        document.querySelectorAll('.vip-plan').forEach(el => {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const days = parseInt(this.dataset.days);
+                const price = parseFloat(this.dataset.price);
+                let discount = 0;
+                if (isVIPActive(currentUser)) {
+                    discount = 0.20;
+                }
+                const finalPrice = price * (1 - discount);
+                if (discount > 0) {
+                    if (!confirm(`У вас уже есть VIP, скидка 20%! Итоговая цена: ${formatCurrency(finalPrice)}`)) return;
+                }
+                buyVIP(days, finalPrice);
+            });
+        });
+
+        // === АВТО-ПРОДЛЕНИЕ VIP ===
+        const saveAutoRenewBtn = document.getElementById('save-auto-renew');
+        if (saveAutoRenewBtn) {
+            saveAutoRenewBtn.addEventListener('click', async function() {
+                if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+                const period = parseInt(document.getElementById('auto-renew-period').value);
+                await writeFirebase('users/' + currentUser.uid + '/auto_renew_period', period);
+                await writeFirebase('users/' + currentUser.uid + '/auto_renew', period > 0);
+                currentUser.auto_renew_period = period;
+                currentUser.auto_renew = period > 0;
+                GradusWeb.notify.success('Настройки авто-продления сохранены');
+            });
+        }
+
+        // === ПРИ ОТКРЫТИИ НАСТРОЕК ===
+        const settingsModal = document.getElementById('settings-modal');
+        if (settingsModal) {
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.attributeName === 'class') {
+                        if (settingsModal.classList.contains('active')) {
+                            renderFreeAvatars();
+                            const checkbox = document.getElementById('hide-balance-checkbox');
+                            if (checkbox && currentUser) {
+                                checkbox.checked = currentUser.hide_balance || false;
+                            }
+                            // Загружаем настройки авто-продления
+                            const autoRenewSelect = document.getElementById('auto-renew-period');
+                            if (autoRenewSelect && currentUser) {
+                                autoRenewSelect.value = currentUser.auto_renew_period || 0;
+                            }
+                        }
+                    }
+                });
+            });
+            observer.observe(settingsModal, { attributes: true });
         }
 
         updateCurrencyUI();
@@ -917,6 +1268,105 @@ function setupModals() {
     }
 }
 
+// ============================================================
+// VIP — покупка и обновление статуса
+// ============================================================
+async function buyVIP(days, priceUSD) {
+    if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+    if (currentUser.ban) { GradusWeb.notify.error('Аккаунт заблокирован'); return; }
+    if (currentUser.balance_usd < priceUSD) {
+        GradusWeb.notify.warning('Недостаточно USD на балансе');
+        return;
+    }
+
+    const newBalance = currentUser.balance_usd - priceUSD;
+    await writeFirebase('users/' + currentUser.uid + '/balance_usd', newBalance);
+    currentUser.balance_usd = newBalance;
+
+    const now = Date.now();
+    const currentExpiry = currentUser.vip_expires || 0;
+    const newExpiry = Math.max(currentExpiry, now) + days * 24 * 60 * 60 * 1000;
+    await writeFirebase('users/' + currentUser.uid + '/vip_expires', newExpiry);
+    currentUser.vip_expires = newExpiry;
+
+    GradusWeb.notify.success('VIP активирован на ' + days + ' дней!');
+    await updateUIElements();
+    updateVIPStatus();
+}
+
+// ============================================================
+// АВАТАРКИ (исправленные)
+// ============================================================
+// Удалите второе (первое) определение setFreeAvatar, оставьте это ИСПРАВЛЕННОЕ
+// === ИСПРАВЛЕННАЯ setFreeAvatar ===
+async function setFreeAvatar(url) {
+    logToScreen('setFreeAvatar вызвана с URL: ' + url);
+    if (!currentUser) {
+        logToScreen('Ошибка: пользователь не авторизован');
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return;
+    }
+
+    const userPath = 'users/' + currentUser.uid;
+    logToScreen('Читаем текущие данные пользователя из: ' + userPath);
+    const userData = await readFirebase(userPath);
+    if (!userData) {
+        logToScreen('Ошибка: данные пользователя не найдены');
+        GradusWeb.notify.error('Ошибка получения данных');
+        return;
+    }
+
+    // Меняем только аватар
+    userData.avatar = url;
+    logToScreen('Пытаемся записать обновлённого пользователя...');
+    const success = await writeFirebase(userPath, userData);
+    if (success) {
+        currentUser.avatar = url;
+        await updateUIElements();
+        GradusWeb.notify.success('Аватарка установлена');
+        logToScreen('UI обновлён, avatar = ' + currentUser.avatar);
+    } else {
+        logToScreen('writeFirebase вернул false');
+        GradusWeb.notify.error('Не удалось сохранить аватарку');
+    }
+}
+
+// === ИСПРАВЛЕННАЯ saveAvatar ===
+async function saveAvatar() {
+    logToScreen('saveAvatar вызвана');
+    const input = document.getElementById('avatar-url-input');
+    const url = input?.value.trim();
+    if (!url) {
+        GradusWeb.notify.warning('Введите URL картинки');
+        return;
+    }
+    if (!currentUser) {
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return;
+    }
+    if (!isVIPActive(currentUser)) {
+        GradusWeb.notify.warning('Установка своей аватарки доступна только с VIP подпиской');
+        return;
+    }
+
+    const userPath = 'users/' + currentUser.uid;
+    const userData = await readFirebase(userPath);
+    if (!userData) {
+        GradusWeb.notify.error('Ошибка получения данных');
+        return;
+    }
+
+    userData.avatar = url;
+    const success = await writeFirebase(userPath, userData);
+    if (success) {
+        currentUser.avatar = url;
+        await updateUIElements();
+        GradusWeb.notify.success('Аватарка сохранена!');
+        closeModal(document.getElementById('settings-modal'));
+    } else {
+        GradusWeb.notify.error('Не удалось сохранить аватарку');
+    }
+}
 function openModal(id) {
     const modal = document.getElementById(id);
     if (modal) modal.classList.add('active');
@@ -926,6 +1376,10 @@ function closeModal(modal) {
 }
 
 function getFeePercent(amount) {
+    if (currentUser && isVIPActive(currentUser)) {
+        if (amount < 100) return 0.01;
+        else return 0.005;
+    }
     if (amount < 5) return 0.10;
     else if (amount < 30) return 0.05;
     else if (amount < 100) return 0.02;
@@ -939,7 +1393,7 @@ function verifyCaptcha(containerId) {
 }
 
 // ============================================================
-// 9. ОБРАБОТЧИКИ ФОРМ (с уведомлениями вместо alert)
+// 10. ОБРАБОТЧИКИ ФОРМ (с уведомлениями)
 // ============================================================
 async function handleDeposit(e) {
     e.preventDefault();
@@ -1140,14 +1594,12 @@ async function handleComplaint(e) {
 }
 
 // ============================================================
-// 10. ИЗМЕНЕНИЕ ЦЕНЫ (пользовательские действия)
+// 11. ИЗМЕНЕНИЕ ЦЕНЫ
 // ============================================================
 async function canUserChangePrice() {
     if (!currentUser) return false;
     const today = new Date().setHours(0,0,0,0);
-    if (currentUser.lastPriceChangeDate >= today) {
-        return false;
-    }
+    if (currentUser.lastPriceChangeDate >= today) return false;
     return true;
 }
 
@@ -1194,25 +1646,21 @@ async function applyPriceChange(changeAmount, type) {
 }
 
 // ============================================================
-// 11. НАВИГАЦИЯ (пустая, всё в setupModals)
+// 12. НАВИГАЦИЯ (пустая)
 // ============================================================
 function setupNavigation() {
     console.log('[Reckon] setupNavigation вызвана (пустая)');
 }
 
 // ============================================================
-// 12. ИНИЦИАЛИЗАЦИЯ
+// 13. ИНИЦИАЛИЗАЦИЯ
 // ============================================================
 async function initSite() {
     try {
-        // Загружаем курсы валют
         await loadExchangeRates();
+        await loadFreeAvatars();
 
-        try {
-            registerHandlers();
-        } catch (e) {
-            console.warn('[Reckon] registerHandlers error:', e);
-        }
+        try { registerHandlers(); } catch (e) { console.warn('[Reckon] registerHandlers error:', e); }
 
         if (!siteConfig.debug) {
             GradusWeb.security.enableDevToolsProtection(() => {
@@ -1250,7 +1698,7 @@ async function initSite() {
 }
 
 // ============================================================
-// 13. ЗАПУСК
+// 14. ЗАПУСК
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
     initSite();
