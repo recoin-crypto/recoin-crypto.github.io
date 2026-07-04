@@ -1,5 +1,5 @@
 // ============================================================
-// site.js — Reckon Coin (финальная версия с корректной обработкой событий)
+// site.js — Reckon Coin (финальная версия, только click)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
@@ -28,7 +28,6 @@ let updateInterval = null;
 let currentPeriod = '1h';
 let allHistoryData = [];
 let freeAvatars = [];
-let friendsListCache = {};
 let selectedVipPlan = null;
 
 // === ВАЛЮТА ===
@@ -257,38 +256,24 @@ async function updateUIElements() {
         const totalSupply = freeSupply + totalCoinsOnWallets + commissionPool;
         let priceUSD = priceData && priceData.price ? priceData.price : 0;
 
-        // Цена
         if (priceEl) priceEl.textContent = formatPrice(priceUSD);
-
-        // Рыночная капитализация
         const marketCapUSD = (priceUSD * totalSupply) + totalUsdOnWallets;
         if (marketCapEl) marketCapEl.textContent = formatCurrency(marketCapUSD);
-
-        // Объём за 24ч
         const volumeUSD = await calculateDailyVolume();
         if (volumeEl) volumeEl.textContent = formatCurrency(volumeUSD);
-
-        // Всего монет
         if (totalSupplyEl) totalSupplyEl.textContent = totalSupply.toFixed(0);
 
-        // Имя и UID с VIP-значком
         let vipBadge = isVIPActive(currentUser) ? ' 💎' : '';
         if (usernameEl) usernameEl.textContent = (currentUser.username || currentUser.uid) + vipBadge;
         if (uidEl) uidEl.textContent = 'UID: ' + currentUser.uid;
 
-        // VIP-значок
-        if (vipBadgeEl) {
-            vipBadgeEl.style.display = isVIPActive(currentUser) ? 'inline-block' : 'none';
-        }
-
-        // VIP срок действия
+        if (vipBadgeEl) vipBadgeEl.style.display = isVIPActive(currentUser) ? 'inline-block' : 'none';
         if (vipExpiryEl) {
             if (isVIPActive(currentUser)) {
                 const expiry = currentUser.vip_expires || 0;
                 const date = new Date(expiry);
                 vipExpiryEl.textContent = 'Действует до: ' + date.toLocaleString();
                 vipExpiryEl.style.display = 'block';
-                // Проверяем авто-продление (если включено и осталось < 3 дней)
                 if (currentUser.auto_renew && (expiry - Date.now() < 3 * 24 * 60 * 60 * 1000)) {
                     autoRenewVIP();
                 }
@@ -297,13 +282,11 @@ async function updateUIElements() {
             }
         }
 
-        // Балансы (в выбранной валюте)
         if (coinBalanceEl) coinBalanceEl.textContent = currentUser.balance_coins.toFixed(2);
         if (usdBalanceEl) usdBalanceEl.textContent = formatCurrency(currentUser.balance_usd);
 
         await updatePriceChange();
 
-        // История транзакций
         const history = await readFirebase('users/' + currentUser.uid + '/transactions');
         let html = '';
         if (history && Object.keys(history).length > 0) {
@@ -339,21 +322,18 @@ async function updateUIElements() {
         } else html = '<p>Нет операций</p>';
         if (historyEl) historyEl.innerHTML = html;
 
-        // Статистика майнера
         const stats = await readFirebase('users/' + currentUser.uid + '/mining_stats');
         const tasksDoneEl = document.getElementById('tasks-done');
         const miningEarnedEl = document.getElementById('mining-earned');
         if (tasksDoneEl) tasksDoneEl.textContent = stats ? stats.tasks : '0';
         if (miningEarnedEl) miningEarnedEl.textContent = stats ? stats.earned.toFixed(2) : '0.00';
 
-        // Оборот комиссий
         if (commissionPoolEl) {
             const poolCoins = commissionPool;
             const poolUSD = poolCoins * priceUSD;
             commissionPoolEl.textContent = poolCoins.toFixed(2) + ' RECKON (' + formatCurrency(poolUSD) + ')';
         }
 
-        // Аватарка
         if (avatarImg) {
             if (currentUser.avatar) {
                 avatarImg.src = currentUser.avatar;
@@ -372,7 +352,6 @@ async function updateUIElements() {
     }
 }
 
-// === ВЫЧИСЛЕНИЕ ОБЪЁМА ЗА 24 ЧАСА ===
 async function calculateDailyVolume() {
     try {
         const now = Date.now();
@@ -974,20 +953,17 @@ function previewAvatar(url) {
 }
 
 // ============================================================
-// 9. МОДАЛКИ И ФОРМЫ (упрощённая обработка событий)
+// 9. МОДАЛКИ И ФОРМЫ (только click, без touchstart)
 // ============================================================
+
+function addEventListeners(element, callback) {
+    if (!element) return;
+    // Только click, без touchstart (чтобы избежать двойного срабатывания)
+    element.addEventListener('click', callback);
+}
 
 function setupModals() {
     try {
-        // Универсальная функция добавления обработчиков: click для ПК, touchstart для мобильных
-        function addEventListeners(element, callback) {
-            if (!element) return;
-            // Для десктопа — click (основной)
-            element.addEventListener('click', callback);
-            // Для мобильных — touchstart (мгновенная реакция)
-            element.addEventListener('touchstart', callback, { passive: true });
-        }
-
         function openWithCaptcha(id, captchaId) {
             if (!currentUser) { showAuthModal(); return; }
             openModal(id);
