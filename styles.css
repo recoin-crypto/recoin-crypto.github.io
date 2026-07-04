@@ -18,11 +18,6 @@ a:hover { color: #7bb8ff; }
     width: 100%;
 }
 
-button, .action-btn, .btn, .modal-close, .nav a {
-    touch-action: manipulation;
-    cursor: pointer;
-}
-
 /* ===== DEBUG LOG ===== */
 #debug-log {
     background: #0a0a0f;
