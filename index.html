@@ -12,6 +12,8 @@
 </head>
 <body>
 
+
+
 <!-- ===== МОДАЛКА ВХОДА/РЕГИСТРАЦИИ ===== -->
 <div class="modal" id="auth-modal">
     <div class="modal-content" style="max-width: 450px;">
@@ -153,8 +155,10 @@
                             <h2 id="username">Гость</h2>
                             <p class="user-id" id="uid-display">UID: —</p>
                             <div id="vip-badge" style="display: none; color: gold; font-weight: bold;">💎 VIP</div>
+                            <div id="vip-expiry" style="font-size: 12px; color: gold; display: none;"></div>
                         </div>
                     </div>
+
                     <div class="balance-row" style="margin-top: 10px;">
                         <div class="balance-item">
                             <span class="balance-label">Монеты</span>
@@ -397,16 +401,26 @@
         </div>
         <hr style="border-color: #2a2a3a; margin: 15px 0;">
         <div class="form-group">
-            <label>Свой URL аватарки</label>
+            <label>Свой URL аватарки (только для VIP)</label>
             <input type="text" id="avatar-url-input" placeholder="https://example.com/avatar.png" style="width:100%; padding:8px; background:#1a1a28; border:1px solid #2a2a3a; border-radius:6px; color:#e0e0e0;">
             <button class="btn btn-primary" id="save-avatar-btn" style="margin-top:10px;">Сохранить аватар</button>
         </div>
         <hr style="border-color: #2a2a3a; margin: 15px 0;">
         <div class="form-group">
-            <label>Скрыть баланс от друзей</label>
+            <label>Скрыть баланс от друзей (только для VIP)</label>
             <input type="checkbox" id="hide-balance-checkbox" style="width: auto;">
             <label for="hide-balance-checkbox">Скрыть</label>
             <button class="btn btn-secondary" id="save-balance-visibility" style="margin-top:5px;">Сохранить</button>
+        </div>
+        <hr style="border-color: #2a2a3a; margin: 15px 0;">
+        <div class="form-group">
+            <label>Авто-продление VIP (за 3 дня до окончания)</label>
+            <select id="auto-renew-period">
+                <option value="0">Отключено</option>
+                <option value="30">30 дней</option>
+                <option value="365">365 дней</option>
+            </select>
+            <button class="btn btn-secondary" id="save-auto-renew">Сохранить</button>
         </div>
     </div>
 </div>
@@ -455,6 +469,9 @@
         <img id="avatar-preview-img" src="" alt="Avatar" style="width: 100%; max-width: 300px; border-radius: 10px;">
     </div>
 </div>
+
+<!-- Добавьте в index.html перед подключением site.js этот блок -->
+<div id="debug-log" style="background: #0a0a0f; color: #0f0; padding: 10px; margin: 10px 20px; border: 1px solid #2a2a3a; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow-y: auto;"></div>
 
 <!-- ===== ПОДКЛЮЧЕНИЕ GRADUS ===== -->
 <script src="client.js"></script>
