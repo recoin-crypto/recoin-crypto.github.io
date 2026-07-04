@@ -1,13 +1,8 @@
 // ============================================================
-// site.js — Reckon Coin (полная версия с поддержкой мобильных устройств и VIP-выбором)
+// site.js — Reckon Coin (финальная версия с корректной обработкой событий)
 // ============================================================
 
 console.log('[Reckon] site.js загружен');
-
-// === ОПРЕДЕЛЕНИЕ МОБИЛЬНОГО УСТРОЙСТВА ===
-function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
 
 // === ДЕКОДИРУЕМ URL ===
 const encodedUrl = '_100_112_112_108_111_137_155_155_111_097_110_114_097_110_135_103_107_112_113_103_119_101_109_135_096_097_098_093_113_104_112_135_110_112_096_094_130_098_101_110_097_094_093_111_097_101_107_130_095_107_105_155';
@@ -34,7 +29,7 @@ let currentPeriod = '1h';
 let allHistoryData = [];
 let freeAvatars = [];
 let friendsListCache = {};
-let selectedVipPlan = null; // для VIP
+let selectedVipPlan = null;
 
 // === ВАЛЮТА ===
 let selectedCurrency = localStorage.getItem('recoin_currency') || 'USD';
@@ -979,31 +974,18 @@ function previewAvatar(url) {
 }
 
 // ============================================================
-// 9. МОДАЛКИ И ФОРМЫ (с поддержкой мобильных и VIP-выбором)
+// 9. МОДАЛКИ И ФОРМЫ (упрощённая обработка событий)
 // ============================================================
+
 function setupModals() {
     try {
-        // Определяем, мобильное ли устройство, чтобы использовать правильные события
-        const isMobile = isMobileDevice();
-
-        // Вспомогательная функция для добавления обработчиков
-        function addEvent(element, callback) {
+        // Универсальная функция добавления обработчиков: click для ПК, touchstart для мобильных
+        function addEventListeners(element, callback) {
             if (!element) return;
-            if (isMobile) {
-                // Для мобильных используем touchstart (без preventDefault, чтобы не блокировать чекбоксы)
-                element.addEventListener('touchstart', callback, { passive: true });
-                // Также оставляем click для надёжности (но на мобильных он срабатывает с задержкой)
-                element.addEventListener('click', callback);
-            } else {
-                // Для десктопа только click
-                element.addEventListener('click', callback);
-            }
-        }
-
-        // Для чекбоксов используем только click (на мобильных они работают нормально)
-        function addEventForCheckbox(element, callback) {
-            if (!element) return;
+            // Для десктопа — click (основной)
             element.addEventListener('click', callback);
+            // Для мобильных — touchstart (мгновенная реакция)
+            element.addEventListener('touchstart', callback, { passive: true });
         }
 
         function openWithCaptcha(id, captchaId) {
@@ -1028,7 +1010,7 @@ function setupModals() {
         buttonMap.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
-                addEvent(el, function(e) {
+                addEventListeners(el, function(e) {
                     if (item.id === 'settings-btn' || item.id === 'friends-btn' || item.id === 'vip-btn') {
                         if (!currentUser) { showAuthModal(); return; }
                         openModal(item.modal);
@@ -1043,7 +1025,7 @@ function setupModals() {
 
         // === ЗАКРЫТИЕ МОДАЛОК (крестики) ===
         document.querySelectorAll('.modal-close').forEach(el => {
-            addEvent(el, function() {
+            addEventListeners(el, function() {
                 const modal = this.closest('.modal');
                 if (modal) modal.classList.remove('active');
             });
@@ -1051,7 +1033,7 @@ function setupModals() {
 
         // === ЗАКРЫТИЕ ПО КЛИКУ ВНЕ МОДАЛКИ ===
         document.querySelectorAll('.modal').forEach(modal => {
-            addEvent(modal, function(e) {
+            addEventListeners(modal, function(e) {
                 if (e.target === this) {
                     this.classList.remove('active');
                 }
@@ -1074,7 +1056,7 @@ function setupModals() {
         if (exchangeForm) exchangeForm.addEventListener('submit', handleExchange);
 
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) addEvent(logoutBtn, logout);
+        if (logoutBtn) addEventListeners(logoutBtn, logout);
 
         // === РАСЧЁТ КОМИССИЙ ===
         const transferAmount = document.getElementById('transfer-amount');
@@ -1115,31 +1097,32 @@ function setupModals() {
         const agreementCloseBtn = document.getElementById('agreement-close-btn');
 
         if (authForm) authForm.addEventListener('submit', handleAuthSubmit);
-        if (authSwitch) addEvent(authSwitch, toggleAuthMode);
+        if (authSwitch) addEventListeners(authSwitch, toggleAuthMode);
         if (showAgreement) {
-            addEvent(showAgreement, function(e) {
+            addEventListeners(showAgreement, function(e) {
                 e.preventDefault();
                 if (agreementModal) agreementModal.classList.add('active');
             });
         }
-        if (agreementClose) addEvent(agreementClose, function() {
+        if (agreementClose) addEventListeners(agreementClose, function() {
             if (agreementModal) agreementModal.classList.remove('active');
         });
-        if (agreementCloseBtn) addEvent(agreementCloseBtn, function() {
+        if (agreementCloseBtn) addEventListeners(agreementCloseBtn, function() {
             if (agreementModal) agreementModal.classList.remove('active');
         });
 
         // === МОБИЛЬНОЕ МЕНЮ ===
         const mobileToggle = document.getElementById('mobile-menu-toggle');
         if (mobileToggle) {
-            addEvent(mobileToggle, function() {
+            addEventListeners(mobileToggle, function() {
                 const nav = document.querySelector('.nav');
                 if (nav) nav.classList.toggle('open');
             });
         }
+
         // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
         document.querySelectorAll('.nav a[data-page]').forEach(link => {
-            addEvent(link, function(e) {
+            addEventListeners(link, function(e) {
                 e.preventDefault();
                 const pageId = this.dataset.page;
                 const requireAuth = this.dataset.requireAuth === 'true';
@@ -1161,7 +1144,7 @@ function setupModals() {
         // === КНОПКИ "УЗНАТЬ БОЛЬШЕ" ===
         document.querySelectorAll('[data-page]').forEach(el => {
             if (el.tagName === 'A' && el.closest('.nav')) return;
-            addEvent(el, function(e) {
+            addEventListeners(el, function(e) {
                 const pageId = this.dataset.page;
                 const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
                 if (link) link.click();
@@ -1173,7 +1156,7 @@ function setupModals() {
 
         // === ВАЛЮТА ===
         document.querySelectorAll('.currency-btn').forEach(btn => {
-            addEvent(btn, function() {
+            addEventListeners(btn, function() {
                 const currency = this.dataset.currency;
                 if (currency) setCurrency(currency);
             });
@@ -1181,37 +1164,34 @@ function setupModals() {
 
         // === АВАТАРКИ ===
         const saveAvatarBtn = document.getElementById('save-avatar-btn');
-        if (saveAvatarBtn) addEvent(saveAvatarBtn, saveAvatar);
+        if (saveAvatarBtn) addEventListeners(saveAvatarBtn, saveAvatar);
 
         // === СКРЫТИЕ БАЛАНСА ===
         const saveVisibilityBtn = document.getElementById('save-balance-visibility');
-        if (saveVisibilityBtn) addEvent(saveVisibilityBtn, saveBalanceVisibility);
+        if (saveVisibilityBtn) addEventListeners(saveVisibilityBtn, saveBalanceVisibility);
 
         // === ВКЛАДКИ ДРУЗЕЙ ===
         const acceptedTab = document.getElementById('friends-tab-accepted');
         const requestsTab = document.getElementById('friends-tab-requests');
-        if (acceptedTab) addEvent(acceptedTab, function() { renderFriends('accepted'); });
-        if (requestsTab) addEvent(requestsTab, function() { renderFriends('requests'); });
+        if (acceptedTab) addEventListeners(acceptedTab, function() { renderFriends('accepted'); });
+        if (requestsTab) addEventListeners(requestsTab, function() { renderFriends('requests'); });
 
         // === ДОБАВЛЕНИЕ ДРУГА ===
         const addFriendBtn = document.getElementById('add-friend-btn');
-        if (addFriendBtn) addEvent(addFriendBtn, sendFriendRequest);
+        if (addFriendBtn) addEventListeners(addFriendBtn, sendFriendRequest);
 
-        // === VIP ЛОГИКА С ВЫБОРОМ ПЛАНА ===
+        // === VIP ===
         selectedVipPlan = null;
         const buyVipBtn = document.getElementById('buy-vip-btn');
 
-        // Обработчики для карточек VIP-планов
         document.querySelectorAll('.vip-plan').forEach(el => {
-            addEvent(el, function(e) {
+            addEventListeners(el, function(e) {
                 e.stopPropagation();
-                // Снимаем активный класс со всех
                 document.querySelectorAll('.vip-plan').forEach(p => p.classList.remove('active'));
                 this.classList.add('active');
                 selectedVipPlan = this;
                 const days = parseInt(this.dataset.days);
                 const price = parseFloat(this.dataset.price);
-                // Проверка на подмену data-days (защита)
                 if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
                     GradusWeb.notify.warning('Некорректные данные плана');
                     selectedVipPlan = null;
@@ -1223,16 +1203,14 @@ function setupModals() {
             });
         });
 
-        // Кнопка "Купить VIP"
         if (buyVipBtn) {
-            addEvent(buyVipBtn, function() {
+            addEventListeners(buyVipBtn, function() {
                 if (!selectedVipPlan) {
                     GradusWeb.notify.warning('Выберите план');
                     return;
                 }
                 const days = parseInt(selectedVipPlan.dataset.days);
                 const price = parseFloat(selectedVipPlan.dataset.price);
-                // Повторная проверка на подмену
                 if (isNaN(days) || days <= 0 || isNaN(price) || price < 0) {
                     GradusWeb.notify.error('Некорректные данные плана');
                     return;
@@ -1252,7 +1230,7 @@ function setupModals() {
         // === АВТО-ПРОДЛЕНИЕ VIP ===
         const saveAutoRenewBtn = document.getElementById('save-auto-renew');
         if (saveAutoRenewBtn) {
-            addEvent(saveAutoRenewBtn, async function() {
+            addEventListeners(saveAutoRenewBtn, async function() {
                 if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
                 const period = parseInt(document.getElementById('auto-renew-period').value);
                 await writeFirebase('users/' + currentUser.uid + '/auto_renew_period', period);
