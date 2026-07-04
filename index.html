@@ -448,17 +448,33 @@
 </div>
 
 <!-- ===== МОДАЛКА VIP ===== -->
+<!-- ===== МОДАЛКА VIP ===== -->
 <div class="modal" id="vip-modal">
     <div class="modal-content" style="max-width: 450px;">
         <span class="modal-close">&times;</span>
-        <h2>VIP подписка</h2>
-        <div id="vip-plans">
-            <div class="vip-plan" data-days="3" data-price="0.05">3 дня - 0.05$</div>
-            <div class="vip-plan" data-days="30" data-price="0.40">30 дней - 0.40$</div>
-            <div class="vip-plan" data-days="365" data-price="2.00">365 дней - 2.00$</div>
+        <h2 style="text-align: center; margin-bottom: 5px;">💎 VIP подписка</h2>
+        <p style="text-align: center; color: #aaa; font-size: 14px; margin-bottom: 15px;">Выберите период</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+            <div class="vip-plan" data-days="3" data-price="0.05" style="background: #1e1e2e; border: 2px solid #2a2a3a; border-radius: 12px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s;">
+                <div style="font-weight: bold; font-size: 16px;">3 дня</div>
+                <div style="color: #4a9eff; font-size: 14px;">0.05$</div>
+            </div>
+            <div class="vip-plan" data-days="30" data-price="0.40" style="background: #1e1e2e; border: 2px solid #2a2a3a; border-radius: 12px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s;">
+                <div style="font-weight: bold; font-size: 16px;">30 дней</div>
+                <div style="color: #4a9eff; font-size: 14px;">0.40$</div>
+            </div>
+            <div class="vip-plan" data-days="365" data-price="2.00" style="background: #1e1e2e; border: 2px solid #2a2a3a; border-radius: 12px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s;">
+                <div style="font-weight: bold; font-size: 16px;">1 год</div>
+                <div style="color: #4a9eff; font-size: 14px;">2.00$</div>
+            </div>
+            <div class="vip-plan" data-days="7300" data-price="5.00" style="background: #1e1e2e; border: 2px solid gold; border-radius: 12px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s;">
+                <div style="font-weight: bold; font-size: 16px; color: gold;">Навсегда ✨</div>
+                <div style="color: #ffd700; font-size: 14px;">5.00$</div>
+            </div>
         </div>
-        <p id="vip-status">Статус: не активен</p>
-        <button class="btn btn-primary" id="buy-vip-btn">Купить VIP</button>
+        <div id="selected-plan" style="text-align: center; font-size: 14px; color: #aaa; margin-bottom: 10px;">Выберите план</div>
+        <button class="btn btn-primary" id="buy-vip-btn" style="width: 100%;">Купить VIP</button>
+        <div id="vip-status" style="text-align: center; margin-top: 10px; font-size: 13px; color: #888;"></div>
     </div>
 </div>
 
