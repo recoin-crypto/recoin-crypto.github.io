@@ -1,26 +1,130 @@
 // ============================================================
-// ai.js — GradAI (асинхронная обработка через Firebase)
+// ai.js — GradAI с поддержкой мышления и безопасным отображением
 // ============================================================
 
 const AI_CONFIG = {
-    // Режимы генерации
-    // 512 - как единственный режим старой версии
     MODES: {
         TURBO: { cost: 30, maxTokens: 512, label: 'TURBO (30 токенов)' },
         HIGH: { cost: 60, maxTokens: 1024, label: 'HIGH+ (60 токенов)' },
-        CODER: { cost: 90, maxTokens: 8192, label: 'CODER (90 токенов)' }
-    }
+        CODER: { cost: 90, maxTokens: 4096, label: 'CODER (90 токенов)' }
+    },
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 25000,
     MODEL_NAME_TEXT: 'GradAI 4',
     MODEL_NAME_IMAGE: 'GradAI IMG-3'
 };
 
-// Текущий режим (по умолчанию HIGH)
 let currentMode = 'HIGH';
 
 // ============================================================
-// Проверка и начисление AI-токенов (раз в месяц)
+// Вспомогательные функции
+// ============================================================
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// ============================================================
+// Разбор тегов мышления
+// ============================================================
+function parseThinkTags(text) {
+    if (!text) return { thinking: '', answer: '' };
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/;
+    const match = text.match(thinkRegex);
+    if (match) {
+        const thinking = match[1].trim();
+        const answer = text.replace(thinkRegex, '').trim();
+        return { thinking, answer };
+    }
+    return { thinking: '', answer: text };
+}
+
+// ============================================================
+// Markdown парсер (безопасный, экранирует HTML)
+// ============================================================
+function parseMarkdown(text) {
+    if (!text) return '';
+
+    // Экранирование HTML
+    function escape(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Разбиваем на блоки кода (```) и обычный текст
+    const parts = [];
+    let remaining = text;
+    const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
+    let match;
+    let lastIndex = 0;
+
+    while ((match = codeBlockRegex.exec(remaining)) !== null) {
+        const before = remaining.substring(lastIndex, match.index);
+        if (before) parts.push({ type: 'text', content: before });
+        const lang = match[1];
+        const code = match[2];
+        parts.push({ type: 'code', lang: lang, code: code });
+        lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < remaining.length) {
+        parts.push({ type: 'text', content: remaining.substring(lastIndex) });
+    }
+
+    let html = '';
+    for (const part of parts) {
+        if (part.type === 'code') {
+            const langAttr = part.lang ? ` class="language-${part.lang}"` : '';
+            html += `<div class="code-block"><pre><code${langAttr}>${part.code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
+        } else {
+            let text = escape(part.content);
+
+            // Обработка строк с отступами как код (4 пробела или таб)
+            const lines = text.split('\n');
+            let inCodeBlock = false;
+            let codeLines = [];
+            const processedLines = [];
+            for (const line of lines) {
+                if (line.match(/^ {4,}/) || line.match(/^\t/)) {
+                    if (!inCodeBlock) {
+                        inCodeBlock = true;
+                        codeLines = [];
+                    }
+                    let cleanLine = line.replace(/^ {4}/, '').replace(/^\t/, '');
+                    codeLines.push(cleanLine);
+                } else {
+                    if (inCodeBlock) {
+                        const code = codeLines.join('\n');
+                        processedLines.push(`<div class="code-block"><pre><code>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+                        inCodeBlock = false;
+                        codeLines = [];
+                    }
+                    processedLines.push(line);
+                }
+            }
+            if (inCodeBlock) {
+                const code = codeLines.join('\n');
+                processedLines.push(`<div class="code-block"><pre><code>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+            }
+            text = processedLines.join('\n');
+
+            // Markdown-разметка
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            text = text.replace(/^## (.*$)/gm, '<h3>$1</h3>');
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+            html += text;
+        }
+    }
+
+    return html;
+}
+
+// ============================================================
+// Проверка и начисление AI-токенов
 // ============================================================
 async function refreshAITokens(user) {
     if (!user) return;
@@ -40,9 +144,7 @@ async function refreshAITokens(user) {
 
     if (now - lastRefill >= oneMonth) {
         let currentTokens = user.ai_tokens || 0;
-        if (currentTokens < limit) {
-            currentTokens = limit;
-        }
+        if (currentTokens < limit) currentTokens = limit;
         await writeFirebase(`users/${uid}/ai_tokens`, currentTokens);
         await writeFirebase(`users/${uid}/ai_last_refill`, now);
         user.ai_tokens = currentTokens;
@@ -69,7 +171,7 @@ async function loadChatHistory() {
             response: val.response || '',
             status: val.status || 'pending',
             timestamp: val.timestamp,
-            mode: val.mode || 'HIGH' // сохраняем режим
+            mode: val.mode || 'HIGH'
         }))
         .sort((a, b) => a.timestamp - b.timestamp);
     return entries;
@@ -104,7 +206,7 @@ async function sendAIRequest(prompt) {
         status: 'pending',
         response: '',
         timestamp: Date.now(),
-        mode: currentMode, // сохраняем режим
+        mode: currentMode,
         max_tokens: modeConfig.maxTokens
     };
 
@@ -144,7 +246,7 @@ async function sendAIRequest(prompt) {
 function waitForResponse(requestId, onUpdate) {
     const path = `gradAI/requests/${requestId}`;
     let attempts = 0;
-    const maxAttempts = 120; // 120 * 1.5 сек = 3 минуты
+    const maxAttempts = 120;
 
     function checkStatus() {
         attempts++;
@@ -187,7 +289,7 @@ async function generateText(prompt, onUpdate) {
         await new Promise((resolve) => {
             waitForResponse(requestId, (status, data) => {
                 if (status === 'done') {
-                    if (onUpdate) onUpdate('done', data);
+                    if (onUpdate) onUpdate('done', data, requestId);
                     resolve();
                 } else if (status === 'error') {
                     if (onUpdate) onUpdate('error', data);
@@ -240,30 +342,6 @@ async function clearUserHistory() {
 }
 
 // ============================================================
-// Markdown парсер (исправленный)
-// ============================================================
-function parseMarkdown(text) {
-    if (!text) return '';
-    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Блоки кода (```language ... ```)
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
-        const langAttr = lang ? ` class="language-${lang}"` : '';
-        return `<div class="code-block"><pre><code${langAttr}>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
-    });
-    // Жирный **текст**
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    // Курсив *текст*
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    // Заголовки ##
-    html = html.replace(/^## (.*$)/gm, '<h3>$1</h3>');
-    // Ссылки [текст](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-    // Переносы строк
-    html = html.replace(/\n/g, '<br>');
-    return html;
-}
-
-// ============================================================
 // UI: обновление баланса
 // ============================================================
 function updateAITokenDisplay() {
@@ -271,7 +349,6 @@ function updateAITokenDisplay() {
     document.querySelectorAll('#ai-token-balance, #ai-token-balance-image, #ai-token-balance-profile').forEach(el => {
         if (el) el.textContent = balance.toFixed(0);
     });
-    // Обновляем информацию о режиме
     const modeInfo = document.getElementById('ai-mode-info');
     if (modeInfo) {
         const mode = AI_CONFIG.MODES[currentMode];
@@ -297,7 +374,7 @@ async function renderAIHistory() {
     let html = '';
     history.slice(-20).forEach(entry => {
         const date = new Date(entry.timestamp).toLocaleString();
-        const prompt = GradusWeb.security.sanitizeHTML(entry.prompt);
+        const prompt = escapeHtml(entry.prompt);
         let statusText = '';
         if (entry.status === 'pending' || entry.status === 'processing') {
             statusText = '⏳ Обрабатывается...';
@@ -306,7 +383,7 @@ async function renderAIHistory() {
         } else {
             statusText = '❌ Ошибка';
         }
-        const response = entry.status === 'done' ? GradusWeb.security.sanitizeHTML(entry.response) : statusText;
+        const response = entry.status === 'done' ? escapeHtml(entry.response) : statusText;
         const modeLabel = AI_CONFIG.MODES[entry.mode]?.label || entry.mode;
         html += `<div class="ai-history-item">
             <div><strong>📝 Текст</strong> — <span class="ai-date">${date}</span> ${statusText}</div>
@@ -331,13 +408,14 @@ function setupCopyButtons() {
 function handleCopy(e) {
     const btn = e.currentTarget;
     const codeBlock = btn.closest('.code-block');
-    const code = codeBlock.querySelector('code').textContent;
-    navigator.clipboard.writeText(code).then(() => {
+    const code = codeBlock.querySelector('code');
+    let text = code.innerText || code.textContent;
+    navigator.clipboard.writeText(text).then(() => {
         btn.textContent = '✅ Скопировано';
         setTimeout(() => btn.textContent = '📋 Копировать', 2000);
     }).catch(() => {
         const textarea = document.createElement('textarea');
-        textarea.value = code;
+        textarea.value = text;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
@@ -348,47 +426,134 @@ function handleCopy(e) {
 }
 
 // ============================================================
-// Отображение сообщений в модалке (без принудительного скролла)
+// Хранилище состояний мышления
+// ============================================================
+const thinkStates = new Map();
+
+window.toggleThink = function(msgId) {
+    const current = thinkStates.get(msgId) || false;
+    const newState = !current;
+    thinkStates.set(msgId, newState);
+
+    const blocks = document.querySelectorAll(`.think-block[data-msgid="${msgId}"]`);
+    blocks.forEach(block => {
+        const btn = block.querySelector('.think-toggle');
+        const content = block.querySelector('.think-content');
+        if (btn) {
+            btn.textContent = newState ? 'Скрыть мышление' : 'Показать мышление';
+        }
+        if (content) {
+            content.style.display = newState ? 'block' : 'none';
+        }
+    });
+};
+
+// ============================================================
+// Отображение сообщений в модалке (инкрементальное)
 // ============================================================
 async function renderChatMessages(chatMessages, keepScroll = false) {
     if (!chatMessages) return;
     const history = await loadChatHistory();
-    const oldScrollTop = chatMessages.scrollTop;
-    const oldScrollHeight = chatMessages.scrollHeight;
-    chatMessages.innerHTML = '';
     if (history.length === 0) {
-        const welcome = document.createElement('div');
-        welcome.className = 'chat-message assistant';
-        welcome.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Задайте мне вопрос!</div>`;
-        chatMessages.appendChild(welcome);
-        chatMessages.scrollTop = 0;
+        chatMessages.innerHTML = `<div class="chat-message assistant">
+            <div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>
+            <div class="msg-text">Задайте мне вопрос!</div>
+        </div>`;
         return;
     }
+
+    const oldScrollTop = chatMessages.scrollTop;
+    const oldScrollHeight = chatMessages.scrollHeight;
+    let scrollToBottom = false;
+
+    const existingIds = new Set();
+    for (let child of chatMessages.children) {
+        const id = child.dataset.msgId;
+        if (id) existingIds.add(id);
+    }
+
+    const fragment = document.createDocumentFragment();
+    let newMsgCount = 0;
+
     history.forEach(entry => {
+        const msgId = entry.id;
+        if (existingIds.has(msgId)) return;
+
+        newMsgCount++;
+
+        // Сообщение пользователя
         const userMsg = document.createElement('div');
         userMsg.className = 'chat-message user';
-        userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${GradusWeb.security.sanitizeHTML(entry.prompt)}</div>`;
-        chatMessages.appendChild(userMsg);
+        userMsg.dataset.msgId = msgId + '_user';
+        userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(entry.prompt)}</div>`;
+        fragment.appendChild(userMsg);
 
+        // Сообщение ассистента
         const assistantMsg = document.createElement('div');
         assistantMsg.className = 'chat-message assistant';
+        assistantMsg.dataset.msgId = msgId;
+
         if (entry.status === 'done') {
-            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(entry.response)}</div>`;
+            const { thinking, answer } = parseThinkTags(entry.response);
+            let contentHtml = '';
+            if (thinking) {
+                const isOpen = thinkStates.get(msgId) || false;
+                contentHtml += `
+                    <div class="think-block" data-msgid="${msgId}">
+                        <button class="think-toggle" data-msgid="${msgId}" onclick="toggleThink('${msgId}')">${isOpen ? 'Скрыть мышление' : 'Показать мышление'}</button>
+                        <div class="think-content" style="display: ${isOpen ? 'block' : 'none'};">${parseMarkdown(thinking)}</div>
+                    </div>
+                `;
+            }
+            contentHtml += `<div class="msg-text">${parseMarkdown(answer)}</div>`;
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
+            setTimeout(setupCopyButtons, 100);
         } else if (entry.status === 'pending' || entry.status === 'processing') {
             assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #888;">⏳ Обрабатывается...</div>`;
         } else {
             assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка обработки</div>`;
         }
-        chatMessages.appendChild(assistantMsg);
+        fragment.appendChild(assistantMsg);
     });
-    // Восстанавливаем скролл, если не нужно принудительно вниз
-    if (keepScroll) {
+
+    if (newMsgCount > 0) {
+        chatMessages.appendChild(fragment);
+        scrollToBottom = true;
+    }
+
+    // Обновляем статус существующих сообщений
+    for (let child of chatMessages.children) {
+        if (child.classList.contains('assistant')) {
+            const id = child.dataset.msgId;
+            if (!id) continue;
+            const entry = history.find(e => e.id === id);
+            if (entry && entry.status === 'done' && child.querySelector('.msg-text')?.textContent === '⏳ Обрабатывается...') {
+                const { thinking, answer } = parseThinkTags(entry.response);
+                let contentHtml = '';
+                if (thinking) {
+                    const isOpen = thinkStates.get(id) || false;
+                    contentHtml += `
+                        <div class="think-block" data-msgid="${id}">
+                            <button class="think-toggle" data-msgid="${id}" onclick="toggleThink('${id}')">${isOpen ? 'Скрыть мышление' : 'Показать мышление'}</button>
+                            <div class="think-content" style="display: ${isOpen ? 'block' : 'none'};">${parseMarkdown(thinking)}</div>
+                        </div>
+                    `;
+                }
+                contentHtml += `<div class="msg-text">${parseMarkdown(answer)}</div>`;
+                child.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
+                setTimeout(setupCopyButtons, 100);
+            }
+        }
+    }
+
+    if (scrollToBottom) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    } else if (keepScroll) {
         const newScrollHeight = chatMessages.scrollHeight;
         chatMessages.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
     } else {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
-    setTimeout(setupCopyButtons, 100);
 }
 
 // ============================================================
@@ -401,32 +566,29 @@ function setupAIUI() {
     if (aiUIInitialized) return;
     aiUIInitialized = true;
 
-    console.log('[GradAI] Настройка UI...');
-
     const actionsGrid = document.querySelector('.actions-grid');
     if (!actionsGrid) {
-        console.warn('[GradAI] .actions-grid не найден, повтор через 500ms');
-        aiUIInitialized = false;
         setTimeout(setupAIUI, 500);
         return;
     }
 
-    actionsGrid.addEventListener('click', function(e) {
-        const chatBtn = e.target.closest('#ai-chat-btn');
-        if (chatBtn) {
+    const chatBtn = document.getElementById('ai-chat-btn');
+    if (chatBtn) {
+        chatBtn.addEventListener('click', function(e) {
             e.preventDefault();
             if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
             openAIChatModal();
-            return;
-        }
-        const imageBtn = e.target.closest('#ai-image-btn');
-        if (imageBtn) {
+        });
+    }
+
+    const imageBtn = document.getElementById('ai-image-btn') || document.getElementById('ai-image-btn-DELETE-THIS-IF-YOU-WANT-ACTIVATE');
+    if (imageBtn) {
+        imageBtn.addEventListener('click', function(e) {
             e.preventDefault();
             if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
             openAIImageModal();
-            return;
-        }
-    });
+        });
+    }
 
     const clearBtn = document.getElementById('chat-clear-btn');
     if (clearBtn) {
@@ -434,7 +596,6 @@ function setupAIUI() {
     }
 
     setupModalHandlers();
-    console.log('[GradAI] Обработчики кнопок ИИ установлены.');
 }
 
 function setupModalHandlers() {
@@ -449,9 +610,7 @@ function setupModalHandlers() {
         chatModal.addEventListener('click', (e) => { if (e.target === e.currentTarget) chatModal.classList.remove('active'); });
     }
 
-    // Режимы: выпадающий список
     if (chatModeSelect) {
-        // Заполняем опции
         chatModeSelect.innerHTML = '';
         for (const [key, mode] of Object.entries(AI_CONFIG.MODES)) {
             const option = document.createElement('option');
@@ -471,15 +630,13 @@ function setupModalHandlers() {
             const prompt = chatInput.value.trim();
             if (!prompt) return;
 
-            // Добавляем сообщение пользователя
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-message user';
-            userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${GradusWeb.security.sanitizeHTML(prompt)}</div>`;
+            userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(prompt)}</div>`;
             chatMessages.appendChild(userMsg);
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // Временное сообщение
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
             loadingMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">⏳ Обрабатывается...</div>`;
@@ -488,12 +645,24 @@ function setupModalHandlers() {
 
             chatSend.disabled = true;
 
-            await generateText(prompt, (status, data) => {
+            await generateText(prompt, (status, data, requestId) => {
                 if (status === 'done') {
                     loadingMsg.remove();
+                    const { thinking, answer } = parseThinkTags(data);
                     const assistantMsg = document.createElement('div');
                     assistantMsg.className = 'chat-message assistant';
-                    assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(data)}</div>`;
+                    let contentHtml = '';
+                    if (thinking) {
+                        const isOpen = thinkStates.get(requestId) || false;
+                        contentHtml += `
+                            <div class="think-block" data-msgid="${requestId}">
+                                <button class="think-toggle" data-msgid="${requestId}" onclick="toggleThink('${requestId}')">${isOpen ? 'Скрыть мышление' : 'Показать мышление'}</button>
+                                <div class="think-content" style="display: ${isOpen ? 'block' : 'none'};">${parseMarkdown(thinking)}</div>
+                            </div>
+                        `;
+                    }
+                    contentHtml += `<div class="msg-text">${parseMarkdown(answer)}</div>`;
+                    assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
                     chatMessages.appendChild(assistantMsg);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                     setTimeout(setupCopyButtons, 100);
@@ -503,7 +672,7 @@ function setupModalHandlers() {
                     loadingMsg.remove();
                     const errorMsg = document.createElement('div');
                     errorMsg.className = 'chat-message assistant';
-                    errorMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка: ${data}</div>`;
+                    errorMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка: ${escapeHtml(data)}</div>`;
                     chatMessages.appendChild(errorMsg);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 } else if (status === 'processing') {
@@ -522,7 +691,7 @@ function setupModalHandlers() {
         });
     }
 
-    // ---------- Изображения ----------
+    // Генерация изображений (без изменений)
     const imageModal = document.getElementById('ai-image-modal');
     const imageGenerate = document.getElementById('image-generate-btn');
     const imagePrompt = document.getElementById('image-prompt-input');
@@ -576,16 +745,18 @@ function openAIChatModal() {
         modal.classList.add('active');
         const chatMessages = document.getElementById('chat-messages');
         if (chatMessages) {
-            // Загружаем историю без принудительного скролла вниз (сохраняем позицию)
             renderChatMessages(chatMessages, true);
-            // Запускаем обновление, но не сбрасываем скролл
             if (chatUpdateInterval) clearInterval(chatUpdateInterval);
             chatUpdateInterval = setInterval(async () => {
-                if (document.getElementById('ai-chat-modal').classList.contains('active')) {
-                    await renderChatMessages(chatMessages, true);
-                } else {
+                if (!document.getElementById('ai-chat-modal').classList.contains('active')) {
                     clearInterval(chatUpdateInterval);
                     chatUpdateInterval = null;
+                    return;
+                }
+                const history = await loadChatHistory();
+                const hasPending = history.some(e => e.status === 'pending' || e.status === 'processing');
+                if (hasPending) {
+                    await renderChatMessages(chatMessages, true);
                 }
             }, 3000);
         }
@@ -594,7 +765,7 @@ function openAIChatModal() {
 }
 
 // ============================================================
-// Генерация изображений (остаётся без изменений)
+// Генерация изображений
 // ============================================================
 async function generateImage(prompt, count = 1) {
     if (!currentUser) {
@@ -663,7 +834,7 @@ function openAIImageModal() {
 }
 
 // ============================================================
-// Обёртка для updateUIElements
+// Инициализация
 // ============================================================
 if (window.updateUIElements) {
     const originalUpdateUI = window.updateUIElements;
@@ -673,9 +844,6 @@ if (window.updateUIElements) {
     };
 }
 
-// ============================================================
-// Инициализация
-// ============================================================
 async function initAI() {
     console.log('[GradAI] Инициализация...');
     if (document.readyState === 'loading') {
@@ -707,3 +875,5 @@ if (document.readyState === 'loading') {
 } else {
     setTimeout(initAI, 500);
 }
+
+window.openAIChatModal = openAIChatModal;
