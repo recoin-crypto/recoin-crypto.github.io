@@ -684,3 +684,11 @@ button,
     color: #8888a0;
     padding: 20px;
 }
+.msg-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.code-block code {
+    white-space: pre;
+    display: block;
+}
