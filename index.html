@@ -511,6 +511,15 @@
             Баланс AI-токенов: <span id="ai-token-balance">0</span> (стоимость запроса: 50 токенов)
             <span style="margin-left: 20px;">🔄 <span id="chat-status">Готов</span></span>
         </div>
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <label for="chat-mode-select" style="color: #aaa; font-size: 14px;">Режим:</label>
+            <select id="chat-mode-select" style="background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0; padding: 4px 8px; font-size: 13px;">
+                <option value="TURBO">TURBO (30 токенов)</option>
+                <option value="HIGH" selected>HIGH+ (60 токенов)</option>
+                <option value="CODER">CODER (90 токенов)</option>
+            </select>
+            <span id="ai-mode-info" style="color: #888; font-size: 13px; margin-left: auto;"></span>
+        </div>
     </div>
 </div>
 
