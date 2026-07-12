@@ -1,42 +1,82 @@
 // ============================================================
 // ai.js — GradAI (асинхронная обработка через Firebase)
-// Запросы обрабатываются на ПК модераторов (локально).
 // ============================================================
 
 const AI_CONFIG = {
-    TEXT_COST: 50,
-    IMAGE_SINGLE_COST: 150,
-    IMAGE_QUAD_COST: 500,
+    // Режимы генерации
+    // 512 - как единственный режим старой версии
+    MODES: {
+        TURBO: { cost: 30, maxTokens: 512, label: 'TURBO (30 токенов)' },
+        HIGH: { cost: 60, maxTokens: 1024, label: 'HIGH+ (60 токенов)' },
+        CODER: { cost: 90, maxTokens: 8192, label: 'CODER (90 токенов)' }
+    }
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 25000,
     MODEL_NAME_TEXT: 'GradAI 4',
     MODEL_NAME_IMAGE: 'GradAI IMG-3'
 };
 
+// Текущий режим (по умолчанию HIGH)
+let currentMode = 'HIGH';
+
 // ============================================================
-// Проверка и начисление AI-токенов (ежемесячно)
+// Проверка и начисление AI-токенов (раз в месяц)
 // ============================================================
 async function refreshAITokens(user) {
     if (!user) return;
     const uid = user.uid;
     const now = Date.now();
-    const lastRefill = user.ai_last_refill || 0;
+    let lastRefill = user.ai_last_refill || 0;
+
+    if (lastRefill === 0) {
+        await writeFirebase(`users/${uid}/ai_last_refill`, now);
+        user.ai_last_refill = now;
+        return;
+    }
+
     const isVIP = window.isVIPActive ? window.isVIPActive(user) : false;
     const limit = isVIP ? AI_CONFIG.VIP_TIER_LIMIT : AI_CONFIG.FREE_TIER_LIMIT;
     const oneMonth = 30 * 24 * 60 * 60 * 1000;
+
     if (now - lastRefill >= oneMonth) {
         let currentTokens = user.ai_tokens || 0;
-        if (currentTokens < limit) currentTokens = limit;
+        if (currentTokens < limit) {
+            currentTokens = limit;
+        }
         await writeFirebase(`users/${uid}/ai_tokens`, currentTokens);
         await writeFirebase(`users/${uid}/ai_last_refill`, now);
         user.ai_tokens = currentTokens;
         user.ai_last_refill = now;
         GradusWeb.notify.info(`AI-токены обновлены! Текущий баланс: ${currentTokens}`);
+    } else {
+        user.ai_tokens = user.ai_tokens || 0;
+        user.ai_last_refill = user.ai_last_refill || 0;
     }
 }
 
 // ============================================================
-// Отправка запроса в Firebase (асинхронно)
+// Загрузка истории
+// ============================================================
+async function loadChatHistory() {
+    if (!currentUser) return [];
+    const allRequests = await readFirebase('gradAI/requests');
+    if (!allRequests) return [];
+    const entries = Object.entries(allRequests)
+        .filter(([key, val]) => val.uid === currentUser.uid)
+        .map(([key, val]) => ({
+            id: key,
+            prompt: val.prompt,
+            response: val.response || '',
+            status: val.status || 'pending',
+            timestamp: val.timestamp,
+            mode: val.mode || 'HIGH' // сохраняем режим
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+    return entries;
+}
+
+// ============================================================
+// Отправка запроса в Firebase
 // ============================================================
 async function sendAIRequest(prompt) {
     if (!currentUser) {
@@ -44,141 +84,203 @@ async function sendAIRequest(prompt) {
         return null;
     }
 
-    // Обновляем токены (если прошёл месяц)
     await refreshAITokens(currentUser);
 
-    // Проверяем баланс
-    if ((currentUser.ai_tokens || 0) < AI_CONFIG.TEXT_COST) {
-        GradusWeb.notify.warning(`Недостаточно AI-токенов. Нужно ${AI_CONFIG.TEXT_COST}, у вас ${currentUser.ai_tokens || 0}`);
+    const modeConfig = AI_CONFIG.MODES[currentMode];
+    const cost = modeConfig.cost;
+
+    if ((currentUser.ai_tokens || 0) < cost) {
+        GradusWeb.notify.warning(`Недостаточно AI-токенов. Нужно ${cost}, у вас ${currentUser.ai_tokens || 0}`);
         return null;
     }
 
-    // Списываем токены сразу (оптимистично)
-    const newBalance = (currentUser.ai_tokens || 0) - AI_CONFIG.TEXT_COST;
+    const newBalance = (currentUser.ai_tokens || 0) - cost;
     await writeFirebase(`users/${currentUser.uid}/ai_tokens`, newBalance);
     currentUser.ai_tokens = newBalance;
-    updateAITokenDisplay(); // обновляем интерфейс
 
-    // Создаём запрос в Firebase
     const requestData = {
         uid: currentUser.uid,
         prompt: prompt,
         status: 'pending',
         response: '',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        mode: currentMode, // сохраняем режим
+        max_tokens: modeConfig.maxTokens
     };
+
     const result = await pushFirebase('gradAI/requests', requestData);
     if (!result) {
-        // Возвращаем токены, если не удалось сохранить
-        await writeFirebase(`users/${currentUser.uid}/ai_tokens`, currentUser.ai_tokens + AI_CONFIG.TEXT_COST);
-        currentUser.ai_tokens += AI_CONFIG.TEXT_COST;
+        await writeFirebase(`users/${currentUser.uid}/ai_tokens`, currentUser.ai_tokens + cost);
+        currentUser.ai_tokens += cost;
         GradusWeb.notify.error('Ошибка сохранения запроса');
         return null;
     }
-    const requestId = result.name;
 
-    GradusWeb.notify.info('Запрос отправлен на обработку (ожидайте)');
+    let requestId = null;
+    if (typeof result === 'string') {
+        try {
+            const parsed = JSON.parse(result);
+            requestId = parsed.name;
+        } catch (e) {
+            requestId = result;
+        }
+    } else if (result.name) {
+        requestId = result.name;
+    } else if (result.key) {
+        requestId = result.key;
+    }
 
-    // Подписываемся на результат (через polling или listener)
-    return listenToRequest(requestId);
+    if (!requestId) {
+        GradusWeb.notify.error('Ошибка создания запроса');
+        return null;
+    }
+
+    return requestId;
 }
 
 // ============================================================
-// Подписка на результат запроса (polling)
+// Ожидание ответа (polling)
 // ============================================================
-function listenToRequest(requestId) {
-    return new Promise((resolve, reject) => {
-        const path = `gradAI/requests/${requestId}`;
-        let attempts = 0;
-        const maxAttempts = 120; // 120 * 2 сек = 4 минуты
-        const checkStatus = async () => {
-            attempts++;
-            const data = await readFirebase(path);
+function waitForResponse(requestId, onUpdate) {
+    const path = `gradAI/requests/${requestId}`;
+    let attempts = 0;
+    const maxAttempts = 120; // 120 * 1.5 сек = 3 минуты
+
+    function checkStatus() {
+        attempts++;
+        readFirebase(path).then(data => {
             if (!data) {
-                reject(new Error('Запрос не найден в Firebase'));
+                if (onUpdate) onUpdate('error', 'Запрос не найден');
                 return;
             }
             if (data.status === 'done') {
-                resolve(data.response);
+                if (onUpdate) onUpdate('done', data.response);
                 return;
             } else if (data.status === 'error') {
-                reject(new Error(data.error || 'Ошибка обработки'));
+                if (onUpdate) onUpdate('error', data.error || 'Ошибка обработки');
                 return;
             }
-            // Если истекло время
             if (attempts >= maxAttempts) {
-                reject(new Error('Время ожидания истекло (4 минуты)'));
+                if (onUpdate) onUpdate('error', 'Время ожидания истекло');
                 return;
             }
-            // Повторяем через 2 секунды
-            setTimeout(checkStatus, 2000);
-        };
-        checkStatus();
-    });
+            if (onUpdate) onUpdate('processing', null);
+            setTimeout(checkStatus, 1500);
+        }).catch(err => {
+            if (onUpdate) onUpdate('error', err.message);
+        });
+    }
+
+    checkStatus();
 }
 
 // ============================================================
-// Генерация текста (обёртка для отправки)
+// Генерация текста (с колбэком)
 // ============================================================
-async function generateText(prompt) {
+async function generateText(prompt, onUpdate) {
     try {
-        const answer = await sendAIRequest(prompt);
-        return answer;
+        const requestId = await sendAIRequest(prompt);
+        if (!requestId) {
+            if (onUpdate) onUpdate('error', 'Не удалось создать запрос');
+            return;
+        }
+        await new Promise((resolve) => {
+            waitForResponse(requestId, (status, data) => {
+                if (status === 'done') {
+                    if (onUpdate) onUpdate('done', data);
+                    resolve();
+                } else if (status === 'error') {
+                    if (onUpdate) onUpdate('error', data);
+                    resolve();
+                } else if (status === 'processing') {
+                    if (onUpdate) onUpdate('processing', null);
+                }
+            });
+        });
     } catch (e) {
         console.error('[GradAI] Ошибка генерации:', e);
-        GradusWeb.notify.error('Ошибка: ' + (e.message || 'Неизвестная ошибка'));
-        return null;
+        if (onUpdate) onUpdate('error', e.message || 'Неизвестная ошибка');
     }
 }
 
 // ============================================================
-// Загрузка истории чата (все сообщения пользователя)
+// Очистка истории
 // ============================================================
-async function loadChatHistory() {
-    if (!currentUser) return [];
+async function clearUserHistory() {
+    if (!currentUser) {
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return;
+    }
+    const uid = currentUser.uid;
     const allRequests = await readFirebase('gradAI/requests');
-    if (!allRequests) return [];
-    const entries = Object.entries(allRequests)
-        .filter(([key, val]) => val.uid === currentUser.uid && val.status === 'done')
-        .map(([key, val]) => ({
-            id: key,
-            prompt: val.prompt,
-            response: val.response,
-            timestamp: val.timestamp
-        }))
-        .sort((a, b) => a.timestamp - b.timestamp);
-    return entries;
+    if (!allRequests) {
+        GradusWeb.notify.info('История уже пуста');
+        return;
+    }
+    const entries = Object.entries(allRequests).filter(([key, val]) => val.uid === uid);
+    if (entries.length === 0) {
+        GradusWeb.notify.info('История уже пуста');
+        return;
+    }
+    if (!confirm('Удалить всю историю запросов к ИИ?')) return;
+    for (const [key] of entries) {
+        await deleteFirebase(`gradAI/requests/${key}`);
+    }
+    GradusWeb.notify.success('История очищена');
+
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+        const welcome = document.createElement('div');
+        welcome.className = 'chat-message assistant';
+        welcome.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Задайте мне вопрос!</div>`;
+        chatMessages.appendChild(welcome);
+    }
+    renderAIHistory();
 }
 
 // ============================================================
-// Markdown парсер (упрощённый)
+// Markdown парсер (исправленный)
 // ============================================================
 function parseMarkdown(text) {
     if (!text) return '';
     let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
-        return `<div class="code-block"><pre><code>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
+    // Блоки кода (```language ... ```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        const langAttr = lang ? ` class="language-${lang}"` : '';
+        return `<div class="code-block"><pre><code${langAttr}>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
     });
+    // Жирный **текст**
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Курсив *текст*
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Заголовки ##
     html = html.replace(/^## (.*$)/gm, '<h3>$1</h3>');
+    // Ссылки [текст](url)
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    // Переносы строк
     html = html.replace(/\n/g, '<br>');
     return html;
 }
 
 // ============================================================
-// Отображение баланса токенов
+// UI: обновление баланса
 // ============================================================
 function updateAITokenDisplay() {
     const balance = currentUser ? currentUser.ai_tokens || 0 : 0;
     document.querySelectorAll('#ai-token-balance, #ai-token-balance-image, #ai-token-balance-profile').forEach(el => {
         if (el) el.textContent = balance.toFixed(0);
     });
+    // Обновляем информацию о режиме
+    const modeInfo = document.getElementById('ai-mode-info');
+    if (modeInfo) {
+        const mode = AI_CONFIG.MODES[currentMode];
+        modeInfo.textContent = `Режим: ${mode.label}`;
+    }
 }
 
 // ============================================================
-// История AI-запросов (в кабинете)
+// История на странице (в кабинете)
 // ============================================================
 async function renderAIHistory() {
     const container = document.getElementById('ai-history-container');
@@ -196,19 +298,28 @@ async function renderAIHistory() {
     history.slice(-20).forEach(entry => {
         const date = new Date(entry.timestamp).toLocaleString();
         const prompt = GradusWeb.security.sanitizeHTML(entry.prompt);
-        const response = GradusWeb.security.sanitizeHTML(entry.response);
+        let statusText = '';
+        if (entry.status === 'pending' || entry.status === 'processing') {
+            statusText = '⏳ Обрабатывается...';
+        } else if (entry.status === 'done') {
+            statusText = '✅ Готово';
+        } else {
+            statusText = '❌ Ошибка';
+        }
+        const response = entry.status === 'done' ? GradusWeb.security.sanitizeHTML(entry.response) : statusText;
+        const modeLabel = AI_CONFIG.MODES[entry.mode]?.label || entry.mode;
         html += `<div class="ai-history-item">
-            <div><strong>📝 Текст</strong> — <span class="ai-date">${date}</span></div>
+            <div><strong>📝 Текст</strong> — <span class="ai-date">${date}</span> ${statusText}</div>
             <div style="font-size: 13px; color: #aaa;">Запрос: ${prompt}</div>
             <div style="font-size: 13px; color: #ccc;">Ответ: ${response}</div>
-            <div style="font-size: 12px; color: #888;">Стоимость: ${AI_CONFIG.TEXT_COST} токенов</div>
+            <div style="font-size: 12px; color: #888;">Режим: ${modeLabel}</div>
         </div>`;
     });
     container.innerHTML = html;
 }
 
 // ============================================================
-// Копирование кода из блоков
+// Копирование кода
 // ============================================================
 function setupCopyButtons() {
     document.querySelectorAll('.code-block .copy-code-btn').forEach(btn => {
@@ -237,9 +348,54 @@ function handleCopy(e) {
 }
 
 // ============================================================
-// UI-интеграция (кнопки, модалки, обработчики)
+// Отображение сообщений в модалке (без принудительного скролла)
+// ============================================================
+async function renderChatMessages(chatMessages, keepScroll = false) {
+    if (!chatMessages) return;
+    const history = await loadChatHistory();
+    const oldScrollTop = chatMessages.scrollTop;
+    const oldScrollHeight = chatMessages.scrollHeight;
+    chatMessages.innerHTML = '';
+    if (history.length === 0) {
+        const welcome = document.createElement('div');
+        welcome.className = 'chat-message assistant';
+        welcome.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Задайте мне вопрос!</div>`;
+        chatMessages.appendChild(welcome);
+        chatMessages.scrollTop = 0;
+        return;
+    }
+    history.forEach(entry => {
+        const userMsg = document.createElement('div');
+        userMsg.className = 'chat-message user';
+        userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${GradusWeb.security.sanitizeHTML(entry.prompt)}</div>`;
+        chatMessages.appendChild(userMsg);
+
+        const assistantMsg = document.createElement('div');
+        assistantMsg.className = 'chat-message assistant';
+        if (entry.status === 'done') {
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(entry.response)}</div>`;
+        } else if (entry.status === 'pending' || entry.status === 'processing') {
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #888;">⏳ Обрабатывается...</div>`;
+        } else {
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка обработки</div>`;
+        }
+        chatMessages.appendChild(assistantMsg);
+    });
+    // Восстанавливаем скролл, если не нужно принудительно вниз
+    if (keepScroll) {
+        const newScrollHeight = chatMessages.scrollHeight;
+        chatMessages.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+    } else {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    setTimeout(setupCopyButtons, 100);
+}
+
+// ============================================================
+// UI-интеграция
 // ============================================================
 let aiUIInitialized = false;
+let chatUpdateInterval = null;
 
 function setupAIUI() {
     if (aiUIInitialized) return;
@@ -255,7 +411,6 @@ function setupAIUI() {
         return;
     }
 
-    // Делегирование событий для кнопок ИИ
     actionsGrid.addEventListener('click', function(e) {
         const chatBtn = e.target.closest('#ai-chat-btn');
         if (chatBtn) {
@@ -273,21 +428,42 @@ function setupAIUI() {
         }
     });
 
+    const clearBtn = document.getElementById('chat-clear-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', clearUserHistory);
+    }
+
     setupModalHandlers();
     console.log('[GradAI] Обработчики кнопок ИИ установлены.');
 }
 
 function setupModalHandlers() {
-    // ---------- Чат ----------
     const chatModal = document.getElementById('ai-chat-modal');
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const chatSend = document.getElementById('chat-send-btn');
-    const chatClear = document.getElementById('chat-clear-btn');
+    const chatModeSelect = document.getElementById('chat-mode-select');
 
     if (chatModal) {
         chatModal.querySelector('.modal-close')?.addEventListener('click', () => chatModal.classList.remove('active'));
         chatModal.addEventListener('click', (e) => { if (e.target === e.currentTarget) chatModal.classList.remove('active'); });
+    }
+
+    // Режимы: выпадающий список
+    if (chatModeSelect) {
+        // Заполняем опции
+        chatModeSelect.innerHTML = '';
+        for (const [key, mode] of Object.entries(AI_CONFIG.MODES)) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = mode.label;
+            if (key === currentMode) option.selected = true;
+            chatModeSelect.appendChild(option);
+        }
+        chatModeSelect.addEventListener('change', function() {
+            currentMode = this.value;
+            updateAITokenDisplay();
+        });
     }
 
     if (chatSend && chatInput && chatMessages) {
@@ -303,29 +479,39 @@ function setupModalHandlers() {
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // Сообщение о загрузке
+            // Временное сообщение
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
-            loadingMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">⏳ Обработка...</div>`;
+            loadingMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">⏳ Обрабатывается...</div>`;
             chatMessages.appendChild(loadingMsg);
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            const answer = await generateText(prompt);
-            loadingMsg.remove();
+            chatSend.disabled = true;
 
-            const assistantMsg = document.createElement('div');
-            assistantMsg.className = 'chat-message assistant';
-            if (answer) {
-                assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(answer)}</div>`;
-                setTimeout(setupCopyButtons, 100);
-            } else {
-                assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Ошибка генерации. Попробуйте позже.</div>`;
-            }
-            chatMessages.appendChild(assistantMsg);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            await generateText(prompt, (status, data) => {
+                if (status === 'done') {
+                    loadingMsg.remove();
+                    const assistantMsg = document.createElement('div');
+                    assistantMsg.className = 'chat-message assistant';
+                    assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(data)}</div>`;
+                    chatMessages.appendChild(assistantMsg);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    setTimeout(setupCopyButtons, 100);
+                    updateAITokenDisplay();
+                    renderAIHistory();
+                } else if (status === 'error') {
+                    loadingMsg.remove();
+                    const errorMsg = document.createElement('div');
+                    errorMsg.className = 'chat-message assistant';
+                    errorMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка: ${data}</div>`;
+                    chatMessages.appendChild(errorMsg);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                } else if (status === 'processing') {
+                    loadingMsg.querySelector('.msg-text').textContent = '⏳ Обрабатывается...';
+                }
+            });
 
-            updateAITokenDisplay();
-            renderAIHistory();
+            chatSend.disabled = false;
         });
 
         chatInput.addEventListener('keydown', function(e) {
@@ -336,18 +522,7 @@ function setupModalHandlers() {
         });
     }
 
-    if (chatClear) {
-        chatClear.addEventListener('click', function() {
-            chatMessages.innerHTML = '';
-            const welcome = document.createElement('div');
-            welcome.className = 'chat-message assistant';
-            welcome.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Задайте мне вопрос!</div>`;
-            chatMessages.appendChild(welcome);
-        });
-    }
-
     // ---------- Изображения ----------
-    // (оставляем предыдущую логику для изображений – она не меняется)
     const imageModal = document.getElementById('ai-image-modal');
     const imageGenerate = document.getElementById('image-generate-btn');
     const imagePrompt = document.getElementById('image-prompt-input');
@@ -364,9 +539,8 @@ function setupModalHandlers() {
             const prompt = imagePrompt.value.trim();
             if (!prompt) { GradusWeb.notify.warning('Введите описание'); return; }
             const count = parseInt(imageCount.value);
-            imageResult.innerHTML = '<div class="image-loading">⏳ Генерация...</div>';
-            // Для изображений используем прямые запросы через прокси (как раньше)
-            const images = await generateImage(prompt, count); // функция generateImage уже должна быть определена (или мы её оставляем)
+            imageResult.innerHTML = '<div class="image-loading">⏳ Генерация... (≈ 5–20 сек)</div>';
+            const images = await generateImage(prompt, count);
             if (images && images.length > 0) {
                 imageResult.innerHTML = '';
                 images.forEach(imgUrl => {
@@ -385,7 +559,6 @@ function setupModalHandlers() {
         });
     }
 
-    // При открытии кабинета показываем историю
     const cabinetLink = document.querySelector('[data-page="page-cabinet"]');
     if (cabinetLink) {
         cabinetLink.addEventListener('click', function() {
@@ -394,37 +567,89 @@ function setupModalHandlers() {
     }
 }
 
+// ============================================================
+// Открытие модалки чата
+// ============================================================
 function openAIChatModal() {
     const modal = document.getElementById('ai-chat-modal');
     if (modal) {
         modal.classList.add('active');
         const chatMessages = document.getElementById('chat-messages');
         if (chatMessages) {
-            // Загружаем историю
-            loadChatHistory().then(history => {
-                chatMessages.innerHTML = '';
-                if (history.length === 0) {
-                    const welcome = document.createElement('div');
-                    welcome.className = 'chat-message assistant';
-                    welcome.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">Задайте мне вопрос!</div>`;
-                    chatMessages.appendChild(welcome);
+            // Загружаем историю без принудительного скролла вниз (сохраняем позицию)
+            renderChatMessages(chatMessages, true);
+            // Запускаем обновление, но не сбрасываем скролл
+            if (chatUpdateInterval) clearInterval(chatUpdateInterval);
+            chatUpdateInterval = setInterval(async () => {
+                if (document.getElementById('ai-chat-modal').classList.contains('active')) {
+                    await renderChatMessages(chatMessages, true);
                 } else {
-                    history.forEach(entry => {
-                        const userMsg = document.createElement('div');
-                        userMsg.className = 'chat-message user';
-                        userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${GradusWeb.security.sanitizeHTML(entry.prompt)}</div>`;
-                        chatMessages.appendChild(userMsg);
-                        const assistantMsg = document.createElement('div');
-                        assistantMsg.className = 'chat-message assistant';
-                        assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">${parseMarkdown(entry.response)}</div>`;
-                        chatMessages.appendChild(assistantMsg);
-                    });
+                    clearInterval(chatUpdateInterval);
+                    chatUpdateInterval = null;
                 }
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-                setTimeout(setupCopyButtons, 100);
-            });
+            }, 3000);
         }
         updateAITokenDisplay();
+    }
+}
+
+// ============================================================
+// Генерация изображений (остаётся без изменений)
+// ============================================================
+async function generateImage(prompt, count = 1) {
+    if (!currentUser) {
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return null;
+    }
+
+    await refreshAITokens(currentUser);
+
+    let cost;
+    if (count === 1) cost = 150;
+    else if (count === 4) cost = 500;
+    else {
+        GradusWeb.notify.warning('Поддерживается только 1 или 4 изображения');
+        return null;
+    }
+
+    if ((currentUser.ai_tokens || 0) < cost) {
+        GradusWeb.notify.warning(`Недостаточно AI-токенов. Нужно ${cost}, у вас ${currentUser.ai_tokens || 0}`);
+        return null;
+    }
+
+    try {
+        GradusWeb.notify.info(`Генерация ${count} изображений... (≈ 5–20 сек)`);
+
+        const images = [];
+        const PROXY = 'https://api.codetabs.com/v1/proxy?quest=';
+        for (let i = 0; i < count; i++) {
+            const encodedPrompt = encodeURIComponent(prompt);
+            const targetUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&seed=${Date.now() + i}`;
+            const url = PROXY + encodeURIComponent(targetUrl);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            images.push(URL.createObjectURL(blob));
+        }
+
+        const newBalance = (currentUser.ai_tokens || 0) - cost;
+        await writeFirebase(`users/${currentUser.uid}/ai_tokens`, newBalance);
+        currentUser.ai_tokens = newBalance;
+
+        await pushFirebase(`users/${currentUser.uid}/ai_history`, {
+            type: 'image',
+            prompt: prompt,
+            count: count,
+            cost: cost,
+            timestamp: Date.now()
+        });
+
+        GradusWeb.notify.success(`Сгенерировано ${count} изображений! Осталось токенов: ${newBalance}`);
+        return images;
+    } catch (e) {
+        console.error('[GradAI] Ошибка генерации изображений:', e);
+        GradusWeb.notify.error('Ошибка генерации изображений: ' + (e.message || 'Неизвестная ошибка'));
+        return null;
     }
 }
 
@@ -438,43 +663,13 @@ function openAIImageModal() {
 }
 
 // ============================================================
-// Генерация изображений (прямые запросы через прокси)
-// ============================================================
-async function generateImage(prompt, count = 1) {
-    if (!currentUser) {
-        GradusWeb.notify.warning('Войдите в аккаунт');
-        return null;
-    }
-    // Для изображений пока оставляем старую логику (прямой запрос к Pollinations через прокси)
-    try {
-        const PROXY = 'https://api.codetabs.com/v1/proxy?quest=';
-        const images = [];
-        for (let i = 0; i < count; i++) {
-            const target = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&seed=${Date.now() + i}`;
-            const url = PROXY + encodeURIComponent(target);
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
-            images.push(URL.createObjectURL(blob));
-        }
-        return images;
-    } catch (e) {
-        console.error('[GradAI] Ошибка генерации изображений:', e);
-        GradusWeb.notify.error('Ошибка генерации изображений: ' + (e.message || 'Неизвестная ошибка'));
-        return null;
-    }
-}
-
-// ============================================================
-// Обёртка для updateUIElements (обновление токенов)
+// Обёртка для updateUIElements
 // ============================================================
 if (window.updateUIElements) {
     const originalUpdateUI = window.updateUIElements;
     window.updateUIElements = async function() {
         await originalUpdateUI.apply(this, arguments);
-        if (currentUser) {
-            updateAITokenDisplay();
-        }
+        if (currentUser) updateAITokenDisplay();
     };
 }
 
@@ -493,7 +688,6 @@ async function initAI() {
         updateAITokenDisplay();
         renderAIHistory();
     }
-    // Перехватываем загрузку пользователя для обновления токенов
     const originalLoadUser = window.loadUser;
     if (originalLoadUser) {
         window.loadUser = async function(uid) {
