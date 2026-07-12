@@ -179,6 +179,8 @@
                     <button class="action-btn" id="complaint-btn">⚠️ Жалоба</button>
                     <button class="action-btn" id="friends-btn">👥 Друзья</button>
                     <button class="action-btn" id="vip-btn">💎 VIP</button>
+                    <button class="action-btn" id="ai-chat-btn">🤖 Чат с ИИ (GradAI 4)</button>
+                    <button class="action-btn" id="ai-image-btn">🎨 Сгенерировать изображение (GradAI IMG-3)</button>
                     <button class="action-btn" id="settings-btn">⚙️ Настройки</button>
                 </div>
             </div>
@@ -491,6 +493,48 @@
     <div class="modal-content" style="max-width: 400px; text-align: center;">
         <span class="modal-close">&times;</span>
         <img id="avatar-preview-img" src="" alt="Avatar" style="width: 100%; max-width: 300px; border-radius: 10px;">
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА ЧАТА С ИИ ===== -->
+<div class="modal" id="ai-chat-modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <span class="modal-close">&times;</span>
+        <h2>Чат с GradAI 4</h2>
+        <div id="chat-messages" style="max-height: 300px; overflow-y: auto; background: #0a0a0f; padding: 10px; border-radius: 8px; margin-bottom: 10px; color: #e0e0e0;">
+            <p style="color: #888;">Напишите что-нибудь...</p>
+        </div>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="chat-input" placeholder="Ваш вопрос..." style="flex: 1; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;">
+            <button class="btn btn-primary" id="chat-send-btn">Отправить</button>
+        </div>
+        <div style="margin-top: 10px; font-size: 13px; color: #888;">
+            Баланс AI-токенов: <span id="ai-token-balance">0</span> (стоимость запроса: 50 токенов)
+        </div>
+    </div>
+</div>
+
+<!-- ===== МОДАЛКА ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ ===== -->
+<div class="modal" id="ai-image-modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <span class="modal-close">&times;</span>
+        <h2>Генерация изображения (GradAI IMG-3)</h2>
+        <div class="form-group">
+            <label>Промпт (описание)</label>
+            <input type="text" id="image-prompt-input" placeholder="Нарисуй кота в космосе..." style="width: 100%; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div class="form-group">
+            <label>Количество вариантов</label>
+            <select id="image-count-select" style="width: 100%; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;">
+                <option value="1">1 изображение (150 токенов)</option>
+                <option value="4">4 изображения (500 токенов)</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" id="image-generate-btn">Сгенерировать</button>
+        <div id="image-result" style="margin-top: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;"></div>
+        <div style="margin-top: 10px; font-size: 13px; color: #888;">
+            Баланс AI-токенов: <span id="ai-token-balance-image">0</span>
+        </div>
     </div>
 </div>
 
