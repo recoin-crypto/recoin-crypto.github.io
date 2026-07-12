@@ -556,6 +556,8 @@ async function loadUser(uid) {
     const decodedEmail = userData.email ? GradusWeb.decode(userData.email) : '';
     const decodedPhone = userData.phone ? GradusWeb.decode(userData.phone) : '';
     currentUser = {
+        ai_tokens: userData.ai_tokens || 0,
+        ai_last_refill: userData.ai_last_refill || 0,
         uid: uid,
         username: userData.username,
         email: decodedEmail,
