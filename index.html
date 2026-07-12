@@ -496,32 +496,32 @@
     </div>
 </div>
 
-<!-- ===== МОДАЛКА ЧАТА С ИИ ===== -->
+<!-- ===== МОДАЛКА ЧАТА С ИИ (обновлённая) ===== -->
 <div class="modal" id="ai-chat-modal">
-    <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-content" style="max-width: 700px;">
         <span class="modal-close">&times;</span>
         <h2>Чат с GradAI 4</h2>
-        <div id="chat-messages" style="max-height: 300px; overflow-y: auto; background: #0a0a0f; padding: 10px; border-radius: 8px; margin-bottom: 10px; color: #e0e0e0;">
-            <p style="color: #888;">Напишите что-нибудь...</p>
-        </div>
-        <div style="display: flex; gap: 5px;">
-            <input type="text" id="chat-input" placeholder="Ваш вопрос..." style="flex: 1; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;">
-            <button class="btn btn-primary" id="chat-send-btn">Отправить</button>
+        <div id="chat-messages" style="max-height: 400px; overflow-y: auto; background: #0a0a0f; padding: 10px; border-radius: 8px; margin-bottom: 10px; color: #e0e0e0; display: flex; flex-direction: column; gap: 8px;"></div>
+        <div style="display: flex; gap: 5px; align-items: flex-end;">
+            <textarea id="chat-input" placeholder="Ваш вопрос..." style="flex: 1; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0; resize: vertical; min-height: 44px; max-height: 150px;" rows="2" autocomplete="off"></textarea>
+            <button class="btn btn-primary" id="chat-send-btn" style="height: 44px;">Отправить</button>
+            <button class="btn btn-secondary" id="chat-clear-btn" style="height: 44px;">🗑</button>
         </div>
         <div style="margin-top: 10px; font-size: 13px; color: #888;">
             Баланс AI-токенов: <span id="ai-token-balance">0</span> (стоимость запроса: 50 токенов)
+            <span style="margin-left: 20px;">🔄 <span id="chat-status">Готов</span></span>
         </div>
     </div>
 </div>
 
-<!-- ===== МОДАЛКА ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ ===== -->
+<!-- ===== МОДАЛКА ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (обновлённая) ===== -->
 <div class="modal" id="ai-image-modal">
     <div class="modal-content" style="max-width: 700px;">
         <span class="modal-close">&times;</span>
         <h2>Генерация изображения (GradAI IMG-3)</h2>
         <div class="form-group">
             <label>Промпт (описание)</label>
-            <input type="text" id="image-prompt-input" placeholder="Нарисуй кота в космосе..." style="width: 100%; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;">
+            <input type="text" id="image-prompt-input" placeholder="Нарисуй кота в космосе..." style="width: 100%; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0;" autocomplete="off">
         </div>
         <div class="form-group">
             <label>Количество вариантов</label>
@@ -545,5 +545,6 @@
 <script src="core.js"></script>
 <script src="site.js"></script>
 
+<script src="ai.js"></script>
 </body>
 </html>
