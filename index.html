@@ -75,12 +75,12 @@
     <div class="container">
         <div class="logo">RECKON<span>COIN</span></div>
         <nav class="nav" id="main-nav">
-            <a class="active" data-page="page-home">Главная</a>
-            <a data-page="page-cabinet" data-require-auth="true">Кабинет</a>
-            <a data-page="page-mining" data-require-auth="true">Майнинг</a>
-            <button class="logout-btn" id="logout-btn" style="display:none;">Выйти</button>
+            <a class="active" onclick="navigateTo('page-home')">Главная</a>
+            <a onclick="navigateTo('page-cabinet')">Кабинет</a>
+            <a onclick="navigateTo('page-mining')">Майнинг</a>
+            <button class="logout-btn" id="logout-btn" style="display:none;" onclick="logout()">Выйти</button>
         </nav>
-        <div class="mobile-menu-toggle" id="mobile-menu-toggle">☰</div>
+        <div class="mobile-menu-toggle" id="mobile-menu-toggle" onclick="toggleMobileMenu()">☰</div>
     </div>
 </header>
 
@@ -136,7 +136,7 @@
                     <div class="info-card">
                         <h3>Как майнить?</h3>
                         <p>Скачайте приложение-майнер, запустите его и начните обрабатывать запросы. За каждую задачу вы получаете вознаграждение из оборота комиссий.</p>
-                        <a class="btn btn-primary" data-page="page-mining">Узнать больше</a>
+                        <a class="btn btn-primary" data-page="page-mining" onclick="navigateTo('page-mining')">Узнать больше</a>
                     </div>
                 </div>
             </section>
