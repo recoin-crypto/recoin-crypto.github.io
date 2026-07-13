@@ -51,6 +51,9 @@ function parseThinkTags(text) {
 // ============================================================
 // Безопасный парсер Markdown (сохраняет отступы и экранирует HTML)
 // ============================================================
+// ============================================================
+// Парсер Markdown (с поддержкой таблиц)
+// ============================================================
 function parseMarkdown(text) {
     if (!text) return '';
 
@@ -63,7 +66,7 @@ function parseMarkdown(text) {
         return trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html');
     }
 
-    // Разбиваем на блоки кода (```) и обычный текст
+    // ---- Разбиваем на блоки кода (```) и обычный текст ----
     const parts = [];
     let remaining = text;
     const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
@@ -83,8 +86,10 @@ function parseMarkdown(text) {
     }
 
     let html = '';
+
     for (const part of parts) {
         if (part.type === 'code') {
+            // Блоки кода (экранируем и добавляем кнопки)
             const escapedCode = escape(part.code);
             if (isHtmlPage(part.code)) {
                 const encodedCode = encodeURIComponent(part.code);
@@ -103,10 +108,10 @@ function parseMarkdown(text) {
                 html += `<div class="code-block"><pre><code${langAttr}>${escapedCode}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
             }
         } else {
-            // Обычный текст — экранируем
+            // ---- Обычный текст ----
             let text = escape(part.content);
 
-            // Обработка строк с отступами как код (4 пробела или таб) — СОХРАНЯЕМ ОТСТУПЫ
+            // ---- Обработка строк с отступами как код (4 пробела или таб) ----
             const lines = text.split('\n');
             let inCodeBlock = false;
             let codeLines = [];
@@ -164,18 +169,114 @@ function parseMarkdown(text) {
             }
             text = processedLines.join('\n');
 
-            // Markdown-разметка (только после экранирования)
-            // Заголовки (порядок важен: сначала длинные, потом короткие)
-            text = text.replace(/^### (.*$)/gm, '<h3>$1</h3>');
-            text = text.replace(/^## (.*$)/gm, '<h2>$1</h2>');
-            text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+            // ---- Парсинг таблиц ----
+            text = parseTables(text);
+
+            // ---- Markdown-разметка (жирный, курсив, заголовки, ссылки) ----
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+            text = text.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+            text = text.replace(/^### (.*$)/gm, '<h3>$1</h3>');
             text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
             html += text;
         }
     }
+
+    return html;
+}
+
+// ============================================================
+// Вспомогательная функция: парсинг таблиц
+// ============================================================
+function parseTables(text) {
+    const lines = text.split('\n');
+    const result = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        // Проверяем, может ли строка быть частью таблицы (содержит |)
+        if (line.includes('|')) {
+            // Собираем все строки, пока есть последовательные строки с |
+            const tableLines = [];
+            let j = i;
+            while (j < lines.length && lines[j].includes('|')) {
+                tableLines.push(lines[j]);
+                j++;
+            }
+            // Проверяем, есть ли среди них разделитель (вторая строка, если это таблица)
+            if (tableLines.length >= 3) {
+                // Проверяем вторую строку на разделитель: она должна содержать | и - или :
+                const secondLine = tableLines[1];
+                if (/^\s*\|?\s*[:|-]+\s*\|/.test(secondLine) || /^\s*[:|-]+\s*\|/.test(secondLine)) {
+                    // Это таблица!
+                    const tableHtml = buildTable(tableLines);
+                    result.push(tableHtml);
+                    i = j;
+                    continue;
+                }
+            }
+            // Если это не таблица, просто добавляем строки по одной
+            for (let k = i; k < j; k++) {
+                result.push(lines[k]);
+            }
+            i = j;
+        } else {
+            result.push(line);
+            i++;
+        }
+    }
+    return result.join('\n');
+}
+
+// ============================================================
+// Вспомогательная функция: построение HTML-таблицы из строк
+// ============================================================
+function buildTable(tableLines) {
+    if (tableLines.length < 3) return tableLines.join('\n');
+
+    // Разбираем заголовок (первая строка)
+    const headerCells = tableLines[0].split('|').map(cell => cell.trim()).filter(cell => cell !== '');
+    // Разбираем разделитель (вторая строка) для определения выравнивания
+    const alignLine = tableLines[1];
+    const alignParts = alignLine.split('|').map(part => part.trim()).filter(part => part !== '');
+    const align = alignParts.map(part => {
+        if (part.startsWith(':') && part.endsWith(':')) return 'center';
+        if (part.endsWith(':')) return 'right';
+        if (part.startsWith(':')) return 'left';
+        return 'left';
+    });
+
+    // Данные (строки с 3-й по последнюю)
+    const dataRows = [];
+    for (let i = 2; i < tableLines.length; i++) {
+        const row = tableLines[i].split('|').map(cell => cell.trim()).filter(cell => cell !== '');
+        if (row.length > 0) dataRows.push(row);
+    }
+
+    // Строим HTML
+    let html = '<div class="table-wrapper"><table class="markdown-table">';
+
+    // Заголовок
+    html += '<thead><tr>';
+    headerCells.forEach((cell, idx) => {
+        const alignClass = align[idx] ? ` align-${align[idx]}` : '';
+        html += `<th class="${alignClass}">${cell}</th>`;
+    });
+    html += '</tr></thead>';
+
+    // Тело
+    html += '<tbody>';
+    dataRows.forEach(row => {
+        html += '<tr>';
+        row.forEach((cell, idx) => {
+            const alignClass = align[idx] ? ` align-${align[idx]}` : '';
+            html += `<td class="${alignClass}">${cell}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table></div>';
 
     return html;
 }
