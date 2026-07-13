@@ -1111,7 +1111,7 @@ function setupModals() {
         const agreementCloseBtn = document.getElementById('agreement-close-btn');
 
         if (authForm) authForm.addEventListener('submit', handleAuthSubmit);
-        if (authSwitch) addEventListeners(authSwitch, toggleAuthMode);
+        // if (authSwitch) addEventListeners(authSwitch, toggleAuthMode);
         if (showAgreement) {
             addEventListeners(showAgreement, function(e) {
                 e.preventDefault();
