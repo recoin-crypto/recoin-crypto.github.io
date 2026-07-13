@@ -112,6 +112,15 @@
                 </div>
             </section>
 
+            <div class="info-card">
+                <h3>🤖 Нейросеть GradAI 4</h3>
+                <p>Общайтесь с искусственным интеллектом прямо на сайте! GradAI 4 помогает с программированием, подбором ПК, играми и многим другим.</p>
+                <p>Все режимы ИИ вы можете посмотреть нажав кнопку "Подробнее"</p>
+                <p>А самое главное - обычным пользователям бесплатно 5000 токенов в месяц,а для VIP 25000 токенов в месяц</p>
+                <button class="btn btn-primary" onclick="openModal('ai-info-modal')">Подробнее</button>
+            </div>
+
+
             <section class="chart-section">
                 <div class="chart-header">
                     <h2>График цены</h2>
@@ -179,7 +188,7 @@
                     <button class="action-btn" id="complaint-btn">⚠️ Жалоба</button>
                     <button class="action-btn" id="friends-btn">👥 Друзья</button>
                     <button class="action-btn" id="vip-btn">💎 VIP</button>
-                    <button class="action-btn" id="ai-chat-btn">🤖 Чат с ИИ (GradAI 4)</button>
+                    <button class="action-btn" id="ai-chat-btn">🤖 Чат с ИИ (GradAI 4.2)</button>
                     <button class="action-btn" id="ai-image-btn-DELETE-THIS-IF-YOU-WANT-ACTIVATE" onclick="alert('В разработке...')">🎨 Сгенерировать изображение (GradAI IMG-3, в разработке)</button>
                     <button class="action-btn" id="settings-btn">⚙️ Настройки</button>
                 </div>
@@ -450,7 +459,6 @@
 </div>
 
 <!-- ===== МОДАЛКА VIP ===== -->
-<!-- ===== МОДАЛКА VIP ===== -->
 <div class="modal" id="vip-modal">
     <div class="modal-content" style="max-width: 450px;">
         <span class="modal-close">&times;</span>
@@ -500,7 +508,7 @@
 <div class="modal" id="ai-chat-modal">
     <div class="modal-content" style="max-width: 700px;">
         <span class="modal-close">&times;</span>
-        <h2>Чат с GradAI 4 (Coder edition)</h2>
+        <h2>Чат с GradAI 4.2 (BETA)</h2>
         <div id="chat-messages" style="max-height: 400px; overflow-y: auto; background: #0a0a0f; padding: 10px; border-radius: 8px; margin-bottom: 10px; color: #e0e0e0; display: flex; flex-direction: column; gap: 8px;"></div>
         <div style="display: flex; gap: 5px; align-items: flex-end;">
             <textarea id="chat-input" placeholder="Ваш вопрос..." style="flex: 1; padding: 8px; background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 6px; color: #e0e0e0; resize: vertical; min-height: 44px; max-height: 150px;" rows="2" autocomplete="off"></textarea>
@@ -517,6 +525,7 @@
                 <option value="TURBO">TURBO (24 токена)</option>
                 <option value="HIGH" selected>HIGH+ (70 токенов)</option>
                 <option value="CODER">CODER (100 токенов)</option>
+                <option value="DEEPTHINK">DEEPTHINK (85 токенов)</option>
             </select>
             <span id="ai-mode-info" style="color: #888; font-size: 13px; margin-left: auto;"></span>
         </div>
@@ -548,6 +557,31 @@
 </div>
 
 <!--<div id="debug-log" style="background: #0a0a0f; color: #0f0; padding: 10px; margin: 10px 20px; border: 1px solid #2a2a3a; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow-y: auto;"></div>-->
+
+<!-- ===== МОДАЛКА О НЕЙРОСЕТИ ===== -->
+<div class="modal" id="ai-info-modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <span class="modal-close" onclick="closeModal(document.getElementById('ai-info-modal'))">&times;</span>
+        <h2 style="color: #4a9eff;">🧠 GradAI 4 — ваш ИИ-помощник</h2>
+        <div style="max-height: 400px; overflow-y: auto; text-align: left; color: #b0b0c0; line-height: 1.8;">
+            <p><strong>Что это?</strong></p>
+            <p>GradAI 4 — это встроенная нейросеть, которая помогает пользователям Reckon Coin с любыми вопросами: от написания кода до подбора комплектующих для ПК.</p>
+            <p><strong>⚡ Режимы работы:</strong></p>
+            <ul style="padding-left: 20px; color: #b0b0c0;">
+                <li><strong>TURBO</strong> — быстрые ответы на простые вопросы (24 токена).</li>
+                <li><strong>HIGH+</strong> — стандартный режим для повседневных задач (40 токенов).</li>
+                <li><strong>CODER</strong> — режим программиста: пишет код на любых языках (100 токенов).</li>
+                <li><strong>DEEPTHINK</strong> — эксперт по железу, играм и технологиям (60 токенов).</li>
+            </ul>
+            <p><strong>⚠️ Бета-версия</strong></p>
+            <p>Сейчас GradAI 4 находится в стадии активного тестирования. Ответы могут генерироваться <strong>до 2–3 минут</strong>, особенно в режимах CODER и DEEPTHINK. Мы работаем над ускорением!</p>
+            <p><strong>💡 Как пользоваться:</strong></p>
+            <p>Перейдите в <a href="#" onclick="navigateTo('page-cabinet'); setTimeout(() => document.getElementById('ai-chat-btn').click(), 500);" style="color: #4a9eff; text-decoration: underline;">личный кабинет</a> и нажмите кнопку <strong>«Чат с ИИ»</strong>.</p>
+            <p style="margin-top: 10px; font-size: 13px; color: #888;">Баланс AI-токенов пополняется ежемесячно. Для VIP-пользователей лимит увеличен.</p>
+        </div>
+        <button class="btn btn-primary" onclick="closeModal(document.getElementById('ai-info-modal'))" style="margin-top: 20px; width: 100%;">Закрыть</button>
+    </div>
+</div>
 
 <!-- ===== ПОДКЛЮЧЕНИЕ GRADUS ===== -->
 <script src="client.js"></script>
