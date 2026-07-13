@@ -1,12 +1,12 @@
 // ============================================================
-// ai.js — GradAI с поддержкой мышления и безопасным отображением
+// ai.js — GradAI с безопасным отображением и запуском HTML-кода
 // ============================================================
 
 const AI_CONFIG = {
     MODES: {
-        TURBO: { cost: 30, maxTokens: 512, label: 'TURBO (30 токенов)' },
-        HIGH: { cost: 60, maxTokens: 1024, label: 'HIGH+ (60 токенов)' },
-        CODER: { cost: 90, maxTokens: 4096, label: 'CODER (90 токенов)' }
+        TURBO: { cost: 24, maxTokens:512, label: 'TURBO (24 токенов)' },
+        HIGH: { cost: 70, maxTokens: 4096, label: 'HIGH+ (70 токенов)' },
+        CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' }
     },
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 25000,
@@ -17,7 +17,7 @@ const AI_CONFIG = {
 let currentMode = 'HIGH';
 
 // ============================================================
-// Вспомогательные функции
+// Экранирование HTML
 // ============================================================
 function escapeHtml(unsafe) {
     return unsafe
@@ -29,29 +29,38 @@ function escapeHtml(unsafe) {
 }
 
 // ============================================================
-// Разбор тегов мышления
+// Разбор тегов мышления (удаляет второй блок рассуждений)
 // ============================================================
 function parseThinkTags(text) {
     if (!text) return { thinking: '', answer: '' };
     const thinkRegex = /<think>([\s\S]*?)<\/think>/;
     const match = text.match(thinkRegex);
     if (match) {
-        const thinking = match[1].trim();
-        const answer = text.replace(thinkRegex, '').trim();
+        let thinking = match[1].trim();
+        let answer = text.replace(thinkRegex, '').trim();
+        // Удаляем любой текст, начинающийся с "Рассуждения:", "Reasoning:", "Размышления:"
+        const extraReasoningRegex = /(?:Рассуждения|Reasoning|Размышления|Thinking):[\s\S]*/i;
+        answer = answer.replace(extraReasoningRegex, '');
+        // Удаляем маркеры "Показать мышление"
+        answer = answer.replace(/Показать мышление/g, '').trim();
         return { thinking, answer };
     }
     return { thinking: '', answer: text };
 }
 
 // ============================================================
-// Markdown парсер (безопасный, экранирует HTML)
+// Безопасный парсер Markdown (сохраняет отступы и экранирует HTML)
 // ============================================================
 function parseMarkdown(text) {
     if (!text) return '';
 
-    // Экранирование HTML
     function escape(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function isHtmlPage(code) {
+        const trimmed = code.trim();
+        return trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html');
     }
 
     // Разбиваем на блоки кода (```) и обычный текст
@@ -76,12 +85,28 @@ function parseMarkdown(text) {
     let html = '';
     for (const part of parts) {
         if (part.type === 'code') {
-            const langAttr = part.lang ? ` class="language-${part.lang}"` : '';
-            html += `<div class="code-block"><pre><code${langAttr}>${part.code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
+            const escapedCode = escape(part.code);
+            if (isHtmlPage(part.code)) {
+                const encodedCode = encodeURIComponent(part.code);
+                html += `
+                    <div class="code-block html-page">
+                        <div class="code-header">
+                            <span>🌐 HTML-страница</span>
+                            <button class="run-html-btn" data-code="${encodedCode}">▶ Запустить</button>
+                        </div>
+                        <pre><code class="language-html">${escapedCode}</code></pre>
+                        <button class="copy-code-btn">📋 Копировать</button>
+                    </div>
+                `;
+            } else {
+                const langAttr = part.lang ? ` class="language-${part.lang}"` : '';
+                html += `<div class="code-block"><pre><code${langAttr}>${escapedCode}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
+            }
         } else {
+            // Обычный текст — экранируем
             let text = escape(part.content);
 
-            // Обработка строк с отступами как код (4 пробела или таб)
+            // Обработка строк с отступами как код (4 пробела или таб) — СОХРАНЯЕМ ОТСТУПЫ
             const lines = text.split('\n');
             let inCodeBlock = false;
             let codeLines = [];
@@ -92,12 +117,26 @@ function parseMarkdown(text) {
                         inCodeBlock = true;
                         codeLines = [];
                     }
-                    let cleanLine = line.replace(/^ {4}/, '').replace(/^\t/, '');
-                    codeLines.push(cleanLine);
+                    codeLines.push(line);
                 } else {
                     if (inCodeBlock) {
                         const code = codeLines.join('\n');
-                        processedLines.push(`<div class="code-block"><pre><code>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+                        const escapedCode = escape(code);
+                        if (isHtmlPage(code)) {
+                            const encodedCode = encodeURIComponent(code);
+                            processedLines.push(`
+                                <div class="code-block html-page">
+                                    <div class="code-header">
+                                        <span>🌐 HTML-страница</span>
+                                        <button class="run-html-btn" data-code="${encodedCode}">▶ Запустить</button>
+                                    </div>
+                                    <pre><code class="language-html">${escapedCode}</code></pre>
+                                    <button class="copy-code-btn">📋 Копировать</button>
+                                </div>
+                            `);
+                        } else {
+                            processedLines.push(`<div class="code-block"><pre><code>${escapedCode}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+                        }
                         inCodeBlock = false;
                         codeLines = [];
                     }
@@ -106,14 +145,32 @@ function parseMarkdown(text) {
             }
             if (inCodeBlock) {
                 const code = codeLines.join('\n');
-                processedLines.push(`<div class="code-block"><pre><code>${code}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+                const escapedCode = escape(code);
+                if (isHtmlPage(code)) {
+                    const encodedCode = encodeURIComponent(code);
+                    processedLines.push(`
+                        <div class="code-block html-page">
+                            <div class="code-header">
+                                <span>🌐 HTML-страница</span>
+                                <button class="run-html-btn" data-code="${encodedCode}">▶ Запустить</button>
+                            </div>
+                            <pre><code class="language-html">${escapedCode}</code></pre>
+                            <button class="copy-code-btn">📋 Копировать</button>
+                        </div>
+                    `);
+                } else {
+                    processedLines.push(`<div class="code-block"><pre><code>${escapedCode}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`);
+                }
             }
             text = processedLines.join('\n');
 
-            // Markdown-разметка
+            // Markdown-разметка (только после экранирования)
+            // Заголовки (порядок важен: сначала длинные, потом короткие)
+            text = text.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+            text = text.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+            text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            text = text.replace(/^## (.*$)/gm, '<h3>$1</h3>');
             text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
             html += text;
@@ -121,6 +178,73 @@ function parseMarkdown(text) {
     }
 
     return html;
+}
+
+// ============================================================
+// Обработчик кнопки "Запустить" (открывает HTML в новом окне)
+// ============================================================
+function setupRunButtons() {
+    document.querySelectorAll('.run-html-btn').forEach(btn => {
+        btn.removeEventListener('click', handleRunHtml);
+        btn.addEventListener('click', handleRunHtml);
+    });
+}
+
+function handleRunHtml(e) {
+    const btn = e.currentTarget;
+    const encodedCode = btn.dataset.code;
+    if (!encodedCode) return;
+    const code = decodeURIComponent(encodedCode);
+    // Открываем в новом окне
+    const newWindow = window.open('', '_blank');
+    if (newWindow) {
+        newWindow.document.write(code);
+        newWindow.document.close();
+    } else {
+        // Если блокируется, используем iframe внутри модалки
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.height = '400px';
+        iframe.style.border = 'none';
+        iframe.style.background = '#fff';
+        const blob = new Blob([code], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+        // Вставляем после блока
+        const block = btn.closest('.code-block');
+        block.after(iframe);
+        btn.textContent = '✅ Открыто';
+        btn.disabled = true;
+    }
+}
+
+// ============================================================
+// Копирование кода (обновлённое)
+// ============================================================
+function setupCopyButtons() {
+    document.querySelectorAll('.code-block .copy-code-btn').forEach(btn => {
+        btn.removeEventListener('click', handleCopy);
+        btn.addEventListener('click', handleCopy);
+    });
+}
+
+function handleCopy(e) {
+    const btn = e.currentTarget;
+    const codeBlock = btn.closest('.code-block');
+    const code = codeBlock.querySelector('code');
+    let text = code.innerText || code.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✅ Скопировано';
+        setTimeout(() => btn.textContent = '📋 Копировать', 2000);
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        btn.textContent = '✅ Скопировано';
+        setTimeout(() => btn.textContent = '📋 Копировать', 2000);
+    });
 }
 
 // ============================================================
@@ -396,36 +520,6 @@ async function renderAIHistory() {
 }
 
 // ============================================================
-// Копирование кода
-// ============================================================
-function setupCopyButtons() {
-    document.querySelectorAll('.code-block .copy-code-btn').forEach(btn => {
-        btn.removeEventListener('click', handleCopy);
-        btn.addEventListener('click', handleCopy);
-    });
-}
-
-function handleCopy(e) {
-    const btn = e.currentTarget;
-    const codeBlock = btn.closest('.code-block');
-    const code = codeBlock.querySelector('code');
-    let text = code.innerText || code.textContent;
-    navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = '✅ Скопировано';
-        setTimeout(() => btn.textContent = '📋 Копировать', 2000);
-    }).catch(() => {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-        btn.textContent = '✅ Скопировано';
-        setTimeout(() => btn.textContent = '📋 Копировать', 2000);
-    });
-}
-
-// ============================================================
 // Хранилище состояний мышления
 // ============================================================
 const thinkStates = new Map();
@@ -507,7 +601,10 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
             }
             contentHtml += `<div class="msg-text">${parseMarkdown(answer)}</div>`;
             assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
-            setTimeout(setupCopyButtons, 100);
+            setTimeout(() => {
+                setupCopyButtons();
+                setupRunButtons();
+            }, 100);
         } else if (entry.status === 'pending' || entry.status === 'processing') {
             assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #888;">⏳ Обрабатывается...</div>`;
         } else {
@@ -541,7 +638,10 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
                 }
                 contentHtml += `<div class="msg-text">${parseMarkdown(answer)}</div>`;
                 child.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
-                setTimeout(setupCopyButtons, 100);
+                setTimeout(() => {
+                    setupCopyButtons();
+                    setupRunButtons();
+                }, 100);
             }
         }
     }
@@ -630,15 +730,20 @@ function setupModalHandlers() {
             const prompt = chatInput.value.trim();
             if (!prompt) return;
 
+            // Добавляем сообщение пользователя с временным ID
+            const tempId = 'temp_' + Date.now();
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-message user';
+            userMsg.dataset.msgId = tempId;
             userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(prompt)}</div>`;
             chatMessages.appendChild(userMsg);
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
+            // Временное сообщение "Обрабатывается..."
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
+            loadingMsg.dataset.msgId = 'loading_' + Date.now();
             loadingMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text">⏳ Обрабатывается...</div>`;
             chatMessages.appendChild(loadingMsg);
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -651,6 +756,7 @@ function setupModalHandlers() {
                     const { thinking, answer } = parseThinkTags(data);
                     const assistantMsg = document.createElement('div');
                     assistantMsg.className = 'chat-message assistant';
+                    assistantMsg.dataset.msgId = requestId; // реальный ID из Firebase
                     let contentHtml = '';
                     if (thinking) {
                         const isOpen = thinkStates.get(requestId) || false;
@@ -665,13 +771,17 @@ function setupModalHandlers() {
                     assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div>${contentHtml}`;
                     chatMessages.appendChild(assistantMsg);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
-                    setTimeout(setupCopyButtons, 100);
+                    setTimeout(() => {
+                        setupCopyButtons();
+                        setupRunButtons();
+                    }, 100);
                     updateAITokenDisplay();
                     renderAIHistory();
                 } else if (status === 'error') {
                     loadingMsg.remove();
                     const errorMsg = document.createElement('div');
                     errorMsg.className = 'chat-message assistant';
+                    errorMsg.dataset.msgId = 'error_' + Date.now();
                     errorMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка: ${escapeHtml(data)}</div>`;
                     chatMessages.appendChild(errorMsg);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
