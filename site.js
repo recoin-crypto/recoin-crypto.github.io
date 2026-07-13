@@ -575,8 +575,8 @@ async function loadUser(uid) {
         auto_renew_period: userData.auto_renew_period || 0
     };
     await GradusWeb.secretStorage.set('uid', uid);
-    const logoutBtn = document.getElementById('logout-btn');
-    if (logoutBtn) logoutBtn.style.display = 'inline-block';
+//    const logoutBtn = document.getElementById('logout-btn');
+//    if (logoutBtn) logoutBtn.style.display = 'inline-block';
 }
 
 async function logout() {
@@ -1000,6 +1000,42 @@ function addEventListeners(element, callback) {
     });
 }
 
+// ===== НАВИГАЦИЯ =====
+function navigateTo(pageId) {
+    // Проверяем авторизацию, если требуется
+    const requireAuth = {
+        'page-cabinet': true,
+        'page-mining': true
+    };
+    if (requireAuth[pageId] && !currentUser) {
+        showAuthModal();
+        return;
+    }
+
+    // Скрываем все страницы
+    const pages = {
+        'page-home': document.getElementById('page-home'),
+        'page-cabinet': document.getElementById('page-cabinet'),
+        'page-mining': document.getElementById('page-mining')
+    };
+    Object.values(pages).forEach(p => { if (p) p.classList.remove('active'); });
+    if (pages[pageId]) pages[pageId].classList.add('active');
+
+    // Обновляем активный класс в навигации
+    document.querySelectorAll('.nav a').forEach(link => link.classList.remove('active'));
+    const activeLink = document.querySelector(`.nav a[onclick*="${pageId}"]`);
+    if (activeLink) activeLink.classList.add('active');
+
+    // Закрываем мобильное меню
+    const nav = document.querySelector('.nav');
+    if (nav) nav.classList.remove('open');
+}
+
+function toggleMobileMenu() {
+    const nav = document.querySelector('.nav');
+    if (nav) nav.classList.toggle('open');
+}
+
 function setupModals() {
     try {
         function openWithCaptcha(id, captchaId) {
@@ -1126,44 +1162,44 @@ function setupModals() {
         });
 
         // === МОБИЛЬНОЕ МЕНЮ ===
-        const mobileToggle = document.getElementById('mobile-menu-toggle');
-        if (mobileToggle) {
-            addEventListeners(mobileToggle, function() {
-                const nav = document.querySelector('.nav');
-                if (nav) nav.classList.toggle('open');
-            });
-        }
+//        const mobileToggle = document.getElementById('mobile-menu-toggle');
+//        if (mobileToggle) {
+//            addEventListeners(mobileToggle, function() {
+//                const nav = document.querySelector('.nav');
+//                if (nav) nav.classList.toggle('open');
+//            });
+//        }
 
         // === НАВИГАЦИОННЫЕ ССЫЛКИ ===
-        document.querySelectorAll('.nav a[data-page]').forEach(link => {
-            addEventListeners(link, function(e) {
-                e.preventDefault();
-                const pageId = this.dataset.page;
-                const requireAuth = this.dataset.requireAuth === 'true';
-                if (requireAuth && !currentUser) { showAuthModal(); return; }
-                const pages = {
-                    'page-home': document.getElementById('page-home'),
-                    'page-cabinet': document.getElementById('page-cabinet'),
-                    'page-mining': document.getElementById('page-mining')
-                };
-                Object.values(pages).forEach(p => { if (p) p.classList.remove('active'); });
-                if (pages[pageId]) pages[pageId].classList.add('active');
-                document.querySelectorAll('.nav a[data-page]').forEach(l => l.classList.remove('active'));
-                this.classList.add('active');
-                const nav = document.querySelector('.nav');
-                if (nav) nav.classList.remove('open');
-            });
-        });
+//        document.querySelectorAll('.nav a[data-page]').forEach(link => {
+//            addEventListeners(link, function(e) {
+//                e.preventDefault();
+//                const pageId = this.dataset.page;
+//                const requireAuth = this.dataset.requireAuth === 'true';
+//                if (requireAuth && !currentUser) { showAuthModal(); return; }
+//                const pages = {
+//                    'page-home': document.getElementById('page-home'),
+//                    'page-cabinet': document.getElementById('page-cabinet'),
+//                    'page-mining': document.getElementById('page-mining')
+//                };
+//                Object.values(pages).forEach(p => { if (p) p.classList.remove('active'); });
+//                if (pages[pageId]) pages[pageId].classList.add('active');
+//                document.querySelectorAll('.nav a[data-page]').forEach(l => l.classList.remove('active'));
+//                this.classList.add('active');
+//                const nav = document.querySelector('.nav');
+//                if (nav) nav.classList.remove('open');
+//            });
+//        });
 
         // === КНОПКИ "УЗНАТЬ БОЛЬШЕ" ===
-        document.querySelectorAll('[data-page]').forEach(el => {
-            if (el.tagName === 'A' && el.closest('.nav')) return;
-            addEventListeners(el, function(e) {
-                const pageId = this.dataset.page;
-                const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
-                if (link) link.click();
-            });
-        });
+//        document.querySelectorAll('[data-page]').forEach(el => {
+//            if (el.tagName === 'A' && el.closest('.nav')) return;
+//            addEventListeners(el, function(e) {
+//                const pageId = this.dataset.page;
+//                const link = document.querySelector(`.nav a[data-page="${pageId}"]`);
+//                if (link) link.click();
+//            });
+//        });
 
         // === КНОПКИ ГРАФИКА ===
         setupChartControls();
