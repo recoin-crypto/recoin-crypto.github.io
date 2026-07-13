@@ -820,3 +820,124 @@ button,
     margin: 8px 0 4px;
     color: #c0c0c0;
 }
+/* ===== ТАБЛИЦЫ ===== */
+.table-wrapper {
+    overflow-x: auto;
+    margin: 16px 0;
+    border-radius: 10px;
+    background: #1a1a2e;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    border: 1px solid #2a2a3a;
+}
+
+.markdown-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    color: #e0e0e0;
+    background: transparent;
+}
+
+/* Заголовки */
+.markdown-table th {
+    background: #2a2a3a;
+    color: #c0d0ff;
+    font-weight: 600;
+    padding: 10px 16px;
+    text-align: left;
+    border-bottom: 2px solid #4a6a9a;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+/* Ячейки */
+.markdown-table td {
+    padding: 9px 16px;
+    border-bottom: 1px solid #2a2a3a;
+    background: #12121f;
+    color: #d0d0e0;
+    vertical-align: middle;
+}
+
+/* Чётные строки — немного светлее */
+.markdown-table tr:nth-child(even) td {
+    background: #1a1a2e;
+}
+
+/* Ховер на строках */
+.markdown-table tbody tr:hover td {
+    background: #2a2a3a;
+    transition: background 0.15s ease;
+}
+
+/* Выравнивание */
+.markdown-table .align-center {
+    text-align: center;
+}
+.markdown-table .align-left {
+    text-align: left;
+}
+.markdown-table .align-right {
+    text-align: right;
+}
+
+/* Скругления углов таблицы (только внешние) */
+.table-wrapper {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+/* Границы между ячейками — делаем тонкие, но чёткие */
+.markdown-table td,
+.markdown-table th {
+    border-right: 1px solid #2a2a3a;
+}
+.markdown-table td:last-child,
+.markdown-table th:last-child {
+    border-right: none;
+}
+
+/* Последняя строка без нижней границы */
+.markdown-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ===== Адаптация для тёмной темы ===== */
+.markdown-table th {
+    background: #2a2a3a;
+    color: #8ab4ff;
+    border-bottom: 2px solid #4a6a9a;
+}
+
+/* ===== Для таблиц внутри мышления ===== */
+.think-content .table-wrapper {
+    background: #0f0f1a;
+    border-color: #2a2a3a;
+}
+.think-content .markdown-table td {
+    background: #0f0f1a;
+}
+.think-content .markdown-table tr:nth-child(even) td {
+    background: #14141e;
+}
+.think-content .markdown-table th {
+    background: #1a1a2a;
+    color: #8ab4ff;
+}
+
+/* ===== Прокрутка ===== */
+.table-wrapper::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+}
+.table-wrapper::-webkit-scrollbar-track {
+    background: #0a0a12;
+    border-radius: 4px;
+}
+.table-wrapper::-webkit-scrollbar-thumb {
+    background: #3a4a6a;
+    border-radius: 4px;
+}
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #5a7aaa;
+}
