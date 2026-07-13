@@ -1,12 +1,13 @@
 // ============================================================
-// ai.js — GradAI с безопасным отображением и запуском HTML-кода
+// ai.js — GradAI с поддержкой режимов: TURBO, HIGH+, CODER, DEEPTHINK
 // ============================================================
 
 const AI_CONFIG = {
     MODES: {
-        TURBO: { cost: 24, maxTokens:512, label: 'TURBO (24 токенов)' },
-        HIGH: { cost: 70, maxTokens: 4096, label: 'HIGH+ (70 токенов)' },
-        CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' }
+        TURBO: { cost: 24, maxTokens: 512, label: 'TURBO (24 токена)' },
+        HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (40 токенов)' },
+        CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' },
+        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (60 токенов)' }
     },
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 25000,
@@ -38,10 +39,9 @@ function parseThinkTags(text) {
     if (match) {
         let thinking = match[1].trim();
         let answer = text.replace(thinkRegex, '').trim();
-        // Удаляем любой текст, начинающийся с "Рассуждения:", "Reasoning:", "Размышления:"
+        // Удаляем второй блок рассуждений, если он есть
         const extraReasoningRegex = /(?:Рассуждения|Reasoning|Размышления|Thinking):[\s\S]*/i;
         answer = answer.replace(extraReasoningRegex, '');
-        // Удаляем маркеры "Показать мышление"
         answer = answer.replace(/Показать мышление/g, '').trim();
         return { thinking, answer };
     }
@@ -49,10 +49,7 @@ function parseThinkTags(text) {
 }
 
 // ============================================================
-// Безопасный парсер Markdown (сохраняет отступы и экранирует HTML)
-// ============================================================
-// ============================================================
-// Парсер Markdown (с поддержкой таблиц)
+// Безопасный парсер Markdown (таблицы, код, заголовки)
 // ============================================================
 function parseMarkdown(text) {
     if (!text) return '';
@@ -66,7 +63,7 @@ function parseMarkdown(text) {
         return trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html');
     }
 
-    // ---- Разбиваем на блоки кода (```) и обычный текст ----
+    // Разбиваем на блоки кода (```) и обычный текст
     const parts = [];
     let remaining = text;
     const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
@@ -86,10 +83,8 @@ function parseMarkdown(text) {
     }
 
     let html = '';
-
     for (const part of parts) {
         if (part.type === 'code') {
-            // Блоки кода (экранируем и добавляем кнопки)
             const escapedCode = escape(part.code);
             if (isHtmlPage(part.code)) {
                 const encodedCode = encodeURIComponent(part.code);
@@ -108,10 +103,9 @@ function parseMarkdown(text) {
                 html += `<div class="code-block"><pre><code${langAttr}>${escapedCode}</code></pre><button class="copy-code-btn">📋 Копировать</button></div>`;
             }
         } else {
-            // ---- Обычный текст ----
             let text = escape(part.content);
 
-            // ---- Обработка строк с отступами как код (4 пробела или таб) ----
+            // Обработка строк с отступами как код (4 пробела или таб) — СОХРАНЯЕМ ОТСТУПЫ
             const lines = text.split('\n');
             let inCodeBlock = false;
             let codeLines = [];
@@ -172,7 +166,7 @@ function parseMarkdown(text) {
             // ---- Парсинг таблиц ----
             text = parseTables(text);
 
-            // ---- Markdown-разметка (жирный, курсив, заголовки, ссылки) ----
+            // Markdown-разметка
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
             text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
@@ -196,28 +190,22 @@ function parseTables(text) {
     let i = 0;
     while (i < lines.length) {
         const line = lines[i];
-        // Проверяем, может ли строка быть частью таблицы (содержит |)
         if (line.includes('|')) {
-            // Собираем все строки, пока есть последовательные строки с |
             const tableLines = [];
             let j = i;
             while (j < lines.length && lines[j].includes('|')) {
                 tableLines.push(lines[j]);
                 j++;
             }
-            // Проверяем, есть ли среди них разделитель (вторая строка, если это таблица)
             if (tableLines.length >= 3) {
-                // Проверяем вторую строку на разделитель: она должна содержать | и - или :
                 const secondLine = tableLines[1];
                 if (/^\s*\|?\s*[:|-]+\s*\|/.test(secondLine) || /^\s*[:|-]+\s*\|/.test(secondLine)) {
-                    // Это таблица!
                     const tableHtml = buildTable(tableLines);
                     result.push(tableHtml);
                     i = j;
                     continue;
                 }
             }
-            // Если это не таблица, просто добавляем строки по одной
             for (let k = i; k < j; k++) {
                 result.push(lines[k]);
             }
@@ -230,15 +218,10 @@ function parseTables(text) {
     return result.join('\n');
 }
 
-// ============================================================
-// Вспомогательная функция: построение HTML-таблицы из строк
-// ============================================================
 function buildTable(tableLines) {
     if (tableLines.length < 3) return tableLines.join('\n');
 
-    // Разбираем заголовок (первая строка)
     const headerCells = tableLines[0].split('|').map(cell => cell.trim()).filter(cell => cell !== '');
-    // Разбираем разделитель (вторая строка) для определения выравнивания
     const alignLine = tableLines[1];
     const alignParts = alignLine.split('|').map(part => part.trim()).filter(part => part !== '');
     const align = alignParts.map(part => {
@@ -248,26 +231,19 @@ function buildTable(tableLines) {
         return 'left';
     });
 
-    // Данные (строки с 3-й по последнюю)
     const dataRows = [];
     for (let i = 2; i < tableLines.length; i++) {
         const row = tableLines[i].split('|').map(cell => cell.trim()).filter(cell => cell !== '');
         if (row.length > 0) dataRows.push(row);
     }
 
-    // Строим HTML
     let html = '<div class="table-wrapper"><table class="markdown-table">';
-
-    // Заголовок
     html += '<thead><tr>';
     headerCells.forEach((cell, idx) => {
         const alignClass = align[idx] ? ` align-${align[idx]}` : '';
         html += `<th class="${alignClass}">${cell}</th>`;
     });
-    html += '</tr></thead>';
-
-    // Тело
-    html += '<tbody>';
+    html += '</tr></thead><tbody>';
     dataRows.forEach(row => {
         html += '<tr>';
         row.forEach((cell, idx) => {
@@ -277,49 +253,11 @@ function buildTable(tableLines) {
         html += '</tr>';
     });
     html += '</tbody></table></div>';
-
     return html;
 }
 
 // ============================================================
-// Обработчик кнопки "Запустить" (открывает HTML в новом окне)
-// ============================================================
-function setupRunButtons() {
-    document.querySelectorAll('.run-html-btn').forEach(btn => {
-        btn.removeEventListener('click', handleRunHtml);
-        btn.addEventListener('click', handleRunHtml);
-    });
-}
-
-function handleRunHtml(e) {
-    const btn = e.currentTarget;
-    const encodedCode = btn.dataset.code;
-    if (!encodedCode) return;
-    const code = decodeURIComponent(encodedCode);
-    // Открываем в новом окне
-    const newWindow = window.open('', '_blank');
-    if (newWindow) {
-        newWindow.document.write(code);
-        newWindow.document.close();
-    } else {
-        // Если блокируется, используем iframe внутри модалки
-        const iframe = document.createElement('iframe');
-        iframe.style.width = '100%';
-        iframe.style.height = '400px';
-        iframe.style.border = 'none';
-        iframe.style.background = '#fff';
-        const blob = new Blob([code], { type: 'text/html' });
-        iframe.src = URL.createObjectURL(blob);
-        // Вставляем после блока
-        const block = btn.closest('.code-block');
-        block.after(iframe);
-        btn.textContent = '✅ Открыто';
-        btn.disabled = true;
-    }
-}
-
-// ============================================================
-// Копирование кода (обновлённое)
+// Копирование кода
 // ============================================================
 function setupCopyButtons() {
     document.querySelectorAll('.code-block .copy-code-btn').forEach(btn => {
@@ -346,6 +284,40 @@ function handleCopy(e) {
         btn.textContent = '✅ Скопировано';
         setTimeout(() => btn.textContent = '📋 Копировать', 2000);
     });
+}
+
+// ============================================================
+// Обработчик кнопки "Запустить" (открывает HTML в новом окне)
+// ============================================================
+function setupRunButtons() {
+    document.querySelectorAll('.run-html-btn').forEach(btn => {
+        btn.removeEventListener('click', handleRunHtml);
+        btn.addEventListener('click', handleRunHtml);
+    });
+}
+
+function handleRunHtml(e) {
+    const btn = e.currentTarget;
+    const encodedCode = btn.dataset.code;
+    if (!encodedCode) return;
+    const code = decodeURIComponent(encodedCode);
+    const newWindow = window.open('', '_blank');
+    if (newWindow) {
+        newWindow.document.write(code);
+        newWindow.document.close();
+    } else {
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.height = '400px';
+        iframe.style.border = 'none';
+        iframe.style.background = '#fff';
+        const blob = new Blob([code], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+        const block = btn.closest('.code-block');
+        block.after(iframe);
+        btn.textContent = '✅ Открыто';
+        btn.disabled = true;
+    }
 }
 
 // ============================================================
@@ -831,17 +803,14 @@ function setupModalHandlers() {
             const prompt = chatInput.value.trim();
             if (!prompt) return;
 
-            // Добавляем сообщение пользователя с временным ID
-            const tempId = 'temp_' + Date.now();
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-message user';
-            userMsg.dataset.msgId = tempId;
+            userMsg.dataset.msgId = 'temp_' + Date.now();
             userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(prompt)}</div>`;
             chatMessages.appendChild(userMsg);
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // Временное сообщение "Обрабатывается..."
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
             loadingMsg.dataset.msgId = 'loading_' + Date.now();
@@ -857,7 +826,7 @@ function setupModalHandlers() {
                     const { thinking, answer } = parseThinkTags(data);
                     const assistantMsg = document.createElement('div');
                     assistantMsg.className = 'chat-message assistant';
-                    assistantMsg.dataset.msgId = requestId; // реальный ID из Firebase
+                    assistantMsg.dataset.msgId = requestId;
                     let contentHtml = '';
                     if (thinking) {
                         const isOpen = thinkStates.get(requestId) || false;
@@ -964,11 +933,7 @@ function openAIChatModal() {
                     chatUpdateInterval = null;
                     return;
                 }
-                const history = await loadChatHistory();
-                const hasPending = history.some(e => e.status === 'pending' || e.status === 'processing');
-                if (hasPending) {
-                    await renderChatMessages(chatMessages, true);
-                }
+                await renderChatMessages(chatMessages, true);
             }, 3000);
         }
         updateAITokenDisplay();
