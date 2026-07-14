@@ -1,17 +1,18 @@
 // ============================================================
-// ai.js — GradAI с поддержкой режимов: TURBO, HIGH+, CODER, DEEPTHINK
+// ai.js — GradAI 4.2 (полностью обновлён)
+// Поддерживает режимы: TURBO, HIGH+, CODER, DEEPTHINK
 // ============================================================
 
 const AI_CONFIG = {
     MODES: {
         TURBO: { cost: 24, maxTokens: 512, label: 'TURBO (24 токена)' },
-        HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (40 токенов)' },
+        HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (70 токенов)' },
         CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' },
-        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (60 токенов)' }
+        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (85 токенов)' }
     },
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 25000,
-    MODEL_NAME_TEXT: 'GradAI 4',
+    MODEL_NAME_TEXT: 'GradAI 4.2',
     MODEL_NAME_IMAGE: 'GradAI IMG-3'
 };
 
@@ -803,14 +804,17 @@ function setupModalHandlers() {
             const prompt = chatInput.value.trim();
             if (!prompt) return;
 
+            // Создаём сообщение пользователя с уникальным временным ID
+            const tempId = 'user_' + Date.now();
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-message user';
-            userMsg.dataset.msgId = 'temp_' + Date.now();
+            userMsg.dataset.msgId = tempId;
             userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(prompt)}</div>`;
             chatMessages.appendChild(userMsg);
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
+            // Сообщение "Загрузка"
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
             loadingMsg.dataset.msgId = 'loading_' + Date.now();
