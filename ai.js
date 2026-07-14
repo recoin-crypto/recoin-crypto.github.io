@@ -634,41 +634,55 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
     const oldScrollHeight = chatMessages.scrollHeight;
     let scrollToBottom = false;
 
-    const existingIds = new Set();
+    // Собираем существующие сообщения для проверки дублей по тексту и отправителю
+    const existingMessages = [];
     for (let child of chatMessages.children) {
-        const id = child.dataset.msgId;
-        if (id) existingIds.add(id);
+        const isUser = child.classList.contains('user');
+        const textEl = child.querySelector('.msg-text');
+        if (textEl) {
+            existingMessages.push({
+                isUser: isUser,
+                text: textEl.textContent.trim()
+            });
+        }
     }
 
     const fragment = document.createDocumentFragment();
     let newMsgCount = 0;
 
     history.forEach(entry => {
-        const msgId = entry.id;
-        if (existingIds.has(msgId)) return;
-
-        newMsgCount++;
+        // Проверяем, есть ли уже такое сообщение в DOM
+        const isDuplicate = existingMessages.some(ex =>
+            ex.isUser === true && ex.text === entry.prompt.trim()
+        );
+        if (isDuplicate) return;
 
         // Сообщение пользователя
         const userMsg = document.createElement('div');
         userMsg.className = 'chat-message user';
-        userMsg.dataset.msgId = msgId + '_user';
+        userMsg.dataset.msgId = 'user_' + entry.id;
         userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(entry.prompt)}</div>`;
         fragment.appendChild(userMsg);
+        newMsgCount++;
 
-        // Сообщение ассистента
+        // Сообщение ассистента (проверяем дубли по тексту ответа)
+        const isAssistantDuplicate = existingMessages.some(ex =>
+            ex.isUser === false && ex.text === (entry.response || '').trim()
+        );
+        if (isAssistantDuplicate) return;
+
         const assistantMsg = document.createElement('div');
         assistantMsg.className = 'chat-message assistant';
-        assistantMsg.dataset.msgId = msgId;
+        assistantMsg.dataset.msgId = entry.id;
 
         if (entry.status === 'done') {
             const { thinking, answer } = parseThinkTags(entry.response);
             let contentHtml = '';
             if (thinking) {
-                const isOpen = thinkStates.get(msgId) || false;
+                const isOpen = thinkStates.get(entry.id) || false;
                 contentHtml += `
-                    <div class="think-block" data-msgid="${msgId}">
-                        <button class="think-toggle" data-msgid="${msgId}" onclick="toggleThink('${msgId}')">${isOpen ? 'Скрыть мышление' : 'Показать мышление'}</button>
+                    <div class="think-block" data-msgid="${entry.id}">
+                        <button class="think-toggle" data-msgid="${entry.id}" onclick="toggleThink('${entry.id}')">${isOpen ? 'Скрыть мышление' : 'Показать мышление'}</button>
                         <div class="think-content" style="display: ${isOpen ? 'block' : 'none'};">${parseMarkdown(thinking)}</div>
                     </div>
                 `;
@@ -685,6 +699,7 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
             assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_TEXT}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка обработки</div>`;
         }
         fragment.appendChild(assistantMsg);
+        newMsgCount++;
     });
 
     if (newMsgCount > 0) {
@@ -692,7 +707,7 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
         scrollToBottom = true;
     }
 
-    // Обновляем статус существующих сообщений
+    // Обновляем статус существующих сообщений (без изменений)
     for (let child of chatMessages.children) {
         if (child.classList.contains('assistant')) {
             const id = child.dataset.msgId;
