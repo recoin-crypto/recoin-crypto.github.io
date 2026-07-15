@@ -1,22 +1,25 @@
 // ============================================================
 // ai.js — GradAI 4.2 (полностью обновлён)
-// Поддерживает режимы: TURBO, HIGH+, CODER, DEEPTHINK
+// Поддерживает текстовые режимы и генерацию изображений (асинхронно)
 // ============================================================
 
 const AI_CONFIG = {
     MODES: {
         TURBO: { cost: 24, maxTokens: 512, label: 'TURBO (24 токена)' },
-        HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (70 токенов)' },
+        HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (50 токенов)' },
         CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' },
-        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (85 токенов)' }
+        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (70 токенов)' }
     },
     FREE_TIER_LIMIT: 5000,
-    VIP_TIER_LIMIT: 25000,
+    VIP_TIER_LIMIT: 8000,
     MODEL_NAME_TEXT: 'GradAI 4.2',
-    MODEL_NAME_IMAGE: 'GradAI IMG-3'
+    MODEL_NAME_IMAGE: 'GradAI IMG-3',
+    IMAGE_COST: 150
 };
 
 let currentMode = 'HIGH';
+let chatUpdateInterval = null;
+let imageChatUpdateInterval = null;
 
 // ============================================================
 // Экранирование HTML
@@ -31,7 +34,7 @@ function escapeHtml(unsafe) {
 }
 
 // ============================================================
-// Разбор тегов мышления (удаляет второй блок рассуждений)
+// Разбор тегов мышления
 // ============================================================
 function parseThinkTags(text) {
     if (!text) return { thinking: '', answer: '' };
@@ -40,7 +43,6 @@ function parseThinkTags(text) {
     if (match) {
         let thinking = match[1].trim();
         let answer = text.replace(thinkRegex, '').trim();
-        // Удаляем второй блок рассуждений, если он есть
         const extraReasoningRegex = /(?:Рассуждения|Reasoning|Размышления|Thinking):[\s\S]*/i;
         answer = answer.replace(extraReasoningRegex, '');
         answer = answer.replace(/Показать мышление/g, '').trim();
@@ -64,7 +66,6 @@ function parseMarkdown(text) {
         return trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html');
     }
 
-    // Разбиваем на блоки кода (```) и обычный текст
     const parts = [];
     let remaining = text;
     const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
@@ -105,8 +106,6 @@ function parseMarkdown(text) {
             }
         } else {
             let text = escape(part.content);
-
-            // Обработка строк с отступами как код (4 пробела или таб) — СОХРАНЯЕМ ОТСТУПЫ
             const lines = text.split('\n');
             let inCodeBlock = false;
             let codeLines = [];
@@ -164,10 +163,8 @@ function parseMarkdown(text) {
             }
             text = processedLines.join('\n');
 
-            // ---- Парсинг таблиц ----
             text = parseTables(text);
 
-            // Markdown-разметка
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
             text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
@@ -182,9 +179,6 @@ function parseMarkdown(text) {
     return html;
 }
 
-// ============================================================
-// Вспомогательная функция: парсинг таблиц
-// ============================================================
 function parseTables(text) {
     const lines = text.split('\n');
     const result = [];
@@ -287,9 +281,6 @@ function handleCopy(e) {
     });
 }
 
-// ============================================================
-// Обработчик кнопки "Запустить" (открывает HTML в новом окне)
-// ============================================================
 function setupRunButtons() {
     document.querySelectorAll('.run-html-btn').forEach(btn => {
         btn.removeEventListener('click', handleRunHtml);
@@ -322,7 +313,7 @@ function handleRunHtml(e) {
 }
 
 // ============================================================
-// Проверка и начисление AI-токенов
+// AI-токены и Firebase (общие функции)
 // ============================================================
 async function refreshAITokens(user) {
     if (!user) return;
@@ -355,14 +346,14 @@ async function refreshAITokens(user) {
 }
 
 // ============================================================
-// Загрузка истории
+// Текстовый чат
 // ============================================================
 async function loadChatHistory() {
     if (!currentUser) return [];
     const allRequests = await readFirebase('gradAI/requests');
     if (!allRequests) return [];
     const entries = Object.entries(allRequests)
-        .filter(([key, val]) => val.uid === currentUser.uid)
+        .filter(([key, val]) => val.uid === currentUser.uid && val.type !== 'image')
         .map(([key, val]) => ({
             id: key,
             prompt: val.prompt,
@@ -375,9 +366,6 @@ async function loadChatHistory() {
     return entries;
 }
 
-// ============================================================
-// Отправка запроса в Firebase
-// ============================================================
 async function sendAIRequest(prompt) {
     if (!currentUser) {
         GradusWeb.notify.warning('Войдите в аккаунт');
@@ -405,7 +393,8 @@ async function sendAIRequest(prompt) {
         response: '',
         timestamp: Date.now(),
         mode: currentMode,
-        max_tokens: modeConfig.maxTokens
+        max_tokens: modeConfig.maxTokens,
+        type: 'text'
     };
 
     const result = await pushFirebase('gradAI/requests', requestData);
@@ -438,9 +427,6 @@ async function sendAIRequest(prompt) {
     return requestId;
 }
 
-// ============================================================
-// Ожидание ответа (polling)
-// ============================================================
 function waitForResponse(requestId, onUpdate) {
     const path = `gradAI/requests/${requestId}`;
     let attempts = 0;
@@ -474,9 +460,6 @@ function waitForResponse(requestId, onUpdate) {
     checkStatus();
 }
 
-// ============================================================
-// Генерация текста (с колбэком)
-// ============================================================
 async function generateText(prompt, onUpdate) {
     try {
         const requestId = await sendAIRequest(prompt);
@@ -503,9 +486,6 @@ async function generateText(prompt, onUpdate) {
     }
 }
 
-// ============================================================
-// Очистка истории
-// ============================================================
 async function clearUserHistory() {
     if (!currentUser) {
         GradusWeb.notify.warning('Войдите в аккаунт');
@@ -539,9 +519,6 @@ async function clearUserHistory() {
     renderAIHistory();
 }
 
-// ============================================================
-// UI: обновление баланса
-// ============================================================
 function updateAITokenDisplay() {
     const balance = currentUser ? currentUser.ai_tokens || 0 : 0;
     document.querySelectorAll('#ai-token-balance, #ai-token-balance-image, #ai-token-balance-profile').forEach(el => {
@@ -554,9 +531,6 @@ function updateAITokenDisplay() {
     }
 }
 
-// ============================================================
-// История на странице (в кабинете)
-// ============================================================
 async function renderAIHistory() {
     const container = document.getElementById('ai-history-container');
     if (!container) return;
@@ -593,9 +567,6 @@ async function renderAIHistory() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// Хранилище состояний мышления
-// ============================================================
 const thinkStates = new Map();
 
 window.toggleThink = function(msgId) {
@@ -617,7 +588,7 @@ window.toggleThink = function(msgId) {
 };
 
 // ============================================================
-// Отображение сообщений в модалке (инкрементальное)
+// Рендеринг текстового чата
 // ============================================================
 async function renderChatMessages(chatMessages, keepScroll = false) {
     if (!chatMessages) return;
@@ -634,7 +605,6 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
     const oldScrollHeight = chatMessages.scrollHeight;
     let scrollToBottom = false;
 
-    // Собираем существующие сообщения для проверки дублей по тексту и отправителю
     const existingMessages = [];
     for (let child of chatMessages.children) {
         const isUser = child.classList.contains('user');
@@ -651,13 +621,11 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
     let newMsgCount = 0;
 
     history.forEach(entry => {
-        // Проверяем, есть ли уже такое сообщение в DOM
         const isDuplicate = existingMessages.some(ex =>
             ex.isUser === true && ex.text === entry.prompt.trim()
         );
         if (isDuplicate) return;
 
-        // Сообщение пользователя
         const userMsg = document.createElement('div');
         userMsg.className = 'chat-message user';
         userMsg.dataset.msgId = 'user_' + entry.id;
@@ -665,7 +633,6 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
         fragment.appendChild(userMsg);
         newMsgCount++;
 
-        // Сообщение ассистента (проверяем дубли по тексту ответа)
         const isAssistantDuplicate = existingMessages.some(ex =>
             ex.isUser === false && ex.text === (entry.response || '').trim()
         );
@@ -707,7 +674,6 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
         scrollToBottom = true;
     }
 
-    // Обновляем статус существующих сообщений (без изменений)
     for (let child of chatMessages.children) {
         if (child.classList.contains('assistant')) {
             const id = child.dataset.msgId;
@@ -746,14 +712,223 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
 }
 
 // ============================================================
+// Генерация ИЗОБРАЖЕНИЙ (асинхронно, без таймаутов)
+// ============================================================
+async function sendImageRequest(prompt) {
+    if (!currentUser) {
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return null;
+    }
+
+    await refreshAITokens(currentUser);
+
+    const cost = AI_CONFIG.IMAGE_COST;
+
+    if ((currentUser.ai_tokens || 0) < cost) {
+        GradusWeb.notify.warning(`Недостаточно AI-токенов. Нужно ${cost}, у вас ${currentUser.ai_tokens || 0}`);
+        return null;
+    }
+
+    const newBalance = (currentUser.ai_tokens || 0) - cost;
+    await writeFirebase(`users/${currentUser.uid}/ai_tokens`, newBalance);
+    currentUser.ai_tokens = newBalance;
+
+    const requestData = {
+        uid: currentUser.uid,
+        prompt: prompt,
+        status: 'pending',
+        response: '',
+        timestamp: Date.now(),
+        mode: 'IMAGE',
+        max_tokens: 0,
+        type: 'image'
+    };
+
+    const result = await pushFirebase('gradAI/requests', requestData);
+    if (!result) {
+        await writeFirebase(`users/${currentUser.uid}/ai_tokens`, currentUser.ai_tokens + cost);
+        currentUser.ai_tokens += cost;
+        GradusWeb.notify.error('Ошибка сохранения запроса');
+        return null;
+    }
+
+    let requestId = null;
+    if (typeof result === 'string') {
+        try {
+            const parsed = JSON.parse(result);
+            requestId = parsed.name;
+        } catch (e) {
+            requestId = result;
+        }
+    } else if (result.name) {
+        requestId = result.name;
+    } else if (result.key) {
+        requestId = result.key;
+    }
+
+    if (!requestId) {
+        GradusWeb.notify.error('Ошибка создания запроса');
+        return null;
+    }
+
+    return requestId;
+}
+
+async function loadImageHistory() {
+    if (!currentUser) return [];
+    const allRequests = await readFirebase('gradAI/requests');
+    if (!allRequests) return [];
+    const entries = Object.entries(allRequests)
+        .filter(([key, val]) => val.uid === currentUser.uid && val.type === 'image')
+        .map(([key, val]) => ({
+            id: key,
+            prompt: val.prompt,
+            response: val.response || '',
+            status: val.status || 'pending',
+            timestamp: val.timestamp,
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+    return entries;
+}
+
+// Функция для скачивания изображения
+window.downloadImage = function(url, filename) {
+    fetch(url)
+        .then(resp => resp.blob())
+        .then(blob => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename ? `${filename}.png` : 'image.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        })
+        .catch(() => {
+            // fallback: открыть в новой вкладке
+            window.open(url, '_blank');
+        });
+};
+
+// Рендеринг чата для изображений
+async function renderImageChatMessages(chatMessages, keepScroll = false) {
+    if (!chatMessages) return;
+    const history = await loadImageHistory();
+    if (history.length === 0) {
+        chatMessages.innerHTML = `<div class="chat-message assistant">
+            <div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div>
+            <div class="msg-text">Опишите изображение, и я сгенерирую его!</div>
+        </div>`;
+        return;
+    }
+
+    const oldScrollTop = chatMessages.scrollTop;
+    const oldScrollHeight = chatMessages.scrollHeight;
+    let scrollToBottom = false;
+
+    const existingIds = new Set();
+    for (let child of chatMessages.children) {
+        const id = child.dataset.msgId;
+        if (id) existingIds.add(id);
+    }
+
+    const fragment = document.createDocumentFragment();
+    let newMsgCount = 0;
+
+    history.forEach(entry => {
+        const msgId = entry.id;
+        if (existingIds.has(msgId)) return;
+
+        newMsgCount++;
+
+        // Сообщение пользователя
+        const userMsg = document.createElement('div');
+        userMsg.className = 'chat-message user';
+        userMsg.dataset.msgId = msgId + '_user';
+        userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(entry.prompt)}</div>`;
+        fragment.appendChild(userMsg);
+
+        // Сообщение ассистента (картинка)
+        const assistantMsg = document.createElement('div');
+        assistantMsg.className = 'chat-message assistant';
+        assistantMsg.dataset.msgId = msgId;
+
+        if (entry.status === 'done') {
+            const imageUrl = entry.response;
+            const downloadBtn = `<button class="btn btn-sm" onclick="downloadImage('${imageUrl}', '${escapeHtml(entry.prompt)}')">📥 Скачать</button>`;
+            const viewBtn = `<button class="btn btn-sm" onclick="window.open('${imageUrl}', '_blank')">👁️ Посмотреть</button>`;
+            assistantMsg.innerHTML = `
+                <div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div>
+                <div class="msg-text">
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <img src="${imageUrl}" style="max-width: 100%; border-radius: 8px; cursor: pointer;" onclick="window.open('${imageUrl}', '_blank')">
+                        <div style="display: flex; gap: 8px;">${downloadBtn} ${viewBtn}</div>
+                    </div>
+                </div>
+            `;
+        } else if (entry.status === 'pending' || entry.status === 'processing') {
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div><div class="msg-text" style="color: #888;">⏳ Генерация изображения... (может занять несколько минут)</div>`;
+        } else {
+            assistantMsg.innerHTML = `<div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div><div class="msg-text" style="color: #ff6b6b;">❌ Ошибка генерации</div>`;
+        }
+        fragment.appendChild(assistantMsg);
+    });
+
+    if (newMsgCount > 0) {
+        chatMessages.appendChild(fragment);
+        scrollToBottom = true;
+    }
+
+    // Обновляем статус существующих сообщений (если поменялся)
+    for (let child of chatMessages.children) {
+        if (child.classList.contains('assistant')) {
+            const id = child.dataset.msgId;
+            if (!id) continue;
+            const entry = history.find(e => e.id === id);
+            if (entry && entry.status === 'done' && child.querySelector('.msg-text')?.textContent === '⏳ Генерация изображения... (может занять несколько минут)') {
+                const imageUrl = entry.response;
+                const downloadBtn = `<button class="btn btn-sm" onclick="downloadImage('${imageUrl}', '${escapeHtml(entry.prompt)}')">📥 Скачать</button>`;
+                const viewBtn = `<button class="btn btn-sm" onclick="window.open('${imageUrl}', '_blank')">👁️ Посмотреть</button>`;
+                child.innerHTML = `
+                    <div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div>
+                    <div class="msg-text">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <img src="${imageUrl}" style="max-width: 100%; border-radius: 8px; cursor: pointer;" onclick="window.open('${imageUrl}', '_blank')">
+                            <div style="display: flex; gap: 8px;">${downloadBtn} ${viewBtn}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    if (scrollToBottom) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    } else if (keepScroll) {
+        const newScrollHeight = chatMessages.scrollHeight;
+        chatMessages.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+    } else {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+}
+
+// ============================================================
 // UI-интеграция
 // ============================================================
 let aiUIInitialized = false;
-let chatUpdateInterval = null;
 
 function setupAIUI() {
     if (aiUIInitialized) return;
     aiUIInitialized = true;
+
+    const imageChatBtn = document.getElementById('ai-image-chat-btn');
+    if (imageChatBtn) {
+        imageChatBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
+            openAIImageChatModal();
+        });
+    }
 
     const actionsGrid = document.querySelector('.actions-grid');
     if (!actionsGrid) {
@@ -770,15 +945,6 @@ function setupAIUI() {
         });
     }
 
-    const imageBtn = document.getElementById('ai-image-btn') || document.getElementById('ai-image-btn-DELETE-THIS-IF-YOU-WANT-ACTIVATE');
-    if (imageBtn) {
-        imageBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (!currentUser) { GradusWeb.notify.warning('Войдите в аккаунт'); return; }
-            openAIImageModal();
-        });
-    }
-
     const clearBtn = document.getElementById('chat-clear-btn');
     if (clearBtn) {
         clearBtn.addEventListener('click', clearUserHistory);
@@ -788,6 +954,7 @@ function setupAIUI() {
 }
 
 function setupModalHandlers() {
+    // ---- Текстовый чат ----
     const chatModal = document.getElementById('ai-chat-modal');
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
@@ -819,7 +986,6 @@ function setupModalHandlers() {
             const prompt = chatInput.value.trim();
             if (!prompt) return;
 
-            // Создаём сообщение пользователя с уникальным временным ID
             const tempId = 'user_' + Date.now();
             const userMsg = document.createElement('div');
             userMsg.className = 'chat-message user';
@@ -829,7 +995,6 @@ function setupModalHandlers() {
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // Сообщение "Загрузка"
             const loadingMsg = document.createElement('div');
             loadingMsg.className = 'chat-message assistant loading';
             loadingMsg.dataset.msgId = 'loading_' + Date.now();
@@ -890,53 +1055,84 @@ function setupModalHandlers() {
         });
     }
 
-    // Генерация изображений (без изменений)
-    const imageModal = document.getElementById('ai-image-modal');
-    const imageGenerate = document.getElementById('image-generate-btn');
-    const imagePrompt = document.getElementById('image-prompt-input');
-    const imageCount = document.getElementById('image-count-select');
-    const imageResult = document.getElementById('image-result');
+    // ---- Чат для изображений (асинхронный) ----
+    const imageChatModal = document.getElementById('ai-image-chat-modal');
+    const imageChatMessages = document.getElementById('image-chat-messages');
+    const imageChatInput = document.getElementById('image-chat-input');
+    const imageChatSend = document.getElementById('image-chat-send-btn');
+    const imageChatClear = document.getElementById('image-chat-clear-btn');
 
-    if (imageModal) {
-        imageModal.querySelector('.modal-close')?.addEventListener('click', () => imageModal.classList.remove('active'));
-        imageModal.addEventListener('click', (e) => { if (e.target === e.currentTarget) imageModal.classList.remove('active'); });
+    if (imageChatModal) {
+        imageChatModal.querySelector('.modal-close')?.addEventListener('click', () => imageChatModal.classList.remove('active'));
+        imageChatModal.addEventListener('click', (e) => { if (e.target === e.currentTarget) imageChatModal.classList.remove('active'); });
     }
 
-    if (imageGenerate && imagePrompt && imageCount && imageResult) {
-        imageGenerate.addEventListener('click', async function() {
-            const prompt = imagePrompt.value.trim();
-            if (!prompt) { GradusWeb.notify.warning('Введите описание'); return; }
-            const count = parseInt(imageCount.value);
-            imageResult.innerHTML = '<div class="image-loading">⏳ Генерация... (≈ 5–20 сек)</div>';
-            const images = await generateImage(prompt, count);
-            if (images && images.length > 0) {
-                imageResult.innerHTML = '';
-                images.forEach(imgUrl => {
-                    const img = document.createElement('img');
-                    img.src = imgUrl;
-                    img.style.width = '100%';
-                    img.style.borderRadius = '8px';
-                    img.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
-                    imageResult.appendChild(img);
-                });
-            } else {
-                imageResult.innerHTML = '<p style="color: #ff6b6b;">Ошибка генерации изображений. Попробуйте позже.</p>';
+    if (imageChatSend && imageChatInput && imageChatMessages) {
+        imageChatSend.addEventListener('click', async function() {
+            const prompt = imageChatInput.value.trim();
+            if (!prompt) return;
+
+            // Проверяем баланс
+            await refreshAITokens(currentUser);
+            const cost = AI_CONFIG.IMAGE_COST;
+            if ((currentUser.ai_tokens || 0) < cost) {
+                GradusWeb.notify.warning(`Недостаточно токенов. Нужно ${cost}, у вас ${currentUser.ai_tokens || 0}`);
+                return;
             }
-            updateAITokenDisplay();
-            renderAIHistory();
+
+            // Отправляем запрос (без временных сообщений)
+            const requestId = await sendImageRequest(prompt);
+            if (!requestId) {
+                GradusWeb.notify.error('Не удалось создать запрос');
+                return;
+            }
+
+            // Очищаем поле ввода
+            imageChatInput.value = '';
+            // Принудительно обновляем чат, чтобы показать новый pending-запрос
+            await renderImageChatMessages(imageChatMessages, true);
+            GradusWeb.notify.info('Запрос на генерацию изображения отправлен. Ожидайте...');
+        });
+
+        imageChatInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                imageChatSend.click();
+            }
         });
     }
 
-    const cabinetLink = document.querySelector('[data-page="page-cabinet"]');
-    if (cabinetLink) {
-        cabinetLink.addEventListener('click', function() {
-            setTimeout(renderAIHistory, 300);
+    // Очистка истории изображений
+    if (imageChatClear) {
+        imageChatClear.addEventListener('click', async function() {
+            if (!currentUser) {
+                GradusWeb.notify.warning('Войдите в аккаунт');
+                return;
+            }
+            if (!confirm('Удалить всю историю генерации изображений?')) return;
+            const uid = currentUser.uid;
+            const allRequests = await readFirebase('gradAI/requests');
+            if (!allRequests) return;
+            const entries = Object.entries(allRequests).filter(([key, val]) => val.uid === uid && val.type === 'image');
+            for (const [key] of entries) {
+                await deleteFirebase(`gradAI/requests/${key}`);
+            }
+            GradusWeb.notify.success('История изображений очищена');
+            if (imageChatMessages) {
+                imageChatMessages.innerHTML = `<div class="chat-message assistant">
+                    <div class="msg-author">${AI_CONFIG.MODEL_NAME_IMAGE}</div>
+                    <div class="msg-text">Опишите изображение, и я сгенерирую его!</div>
+                </div>`;
+            }
         });
     }
+
+    // ---- Остальные модалки (настройки, VIP, друзья и т.д.) ----
+    // Здесь оставляем без изменений (они в site.js)
 }
 
 // ============================================================
-// Открытие модалки чата
+// Открытие модалок
 // ============================================================
 function openAIChatModal() {
     const modal = document.getElementById('ai-chat-modal');
@@ -959,71 +1155,23 @@ function openAIChatModal() {
     }
 }
 
-// ============================================================
-// Генерация изображений
-// ============================================================
-async function generateImage(prompt, count = 1) {
-    if (!currentUser) {
-        GradusWeb.notify.warning('Войдите в аккаунт');
-        return null;
-    }
-
-    await refreshAITokens(currentUser);
-
-    let cost;
-    if (count === 1) cost = 150;
-    else if (count === 4) cost = 500;
-    else {
-        GradusWeb.notify.warning('Поддерживается только 1 или 4 изображения');
-        return null;
-    }
-
-    if ((currentUser.ai_tokens || 0) < cost) {
-        GradusWeb.notify.warning(`Недостаточно AI-токенов. Нужно ${cost}, у вас ${currentUser.ai_tokens || 0}`);
-        return null;
-    }
-
-    try {
-        GradusWeb.notify.info(`Генерация ${count} изображений... (≈ 5–20 сек)`);
-
-        const images = [];
-        const PROXY = 'https://api.codetabs.com/v1/proxy?quest=';
-        for (let i = 0; i < count; i++) {
-            const encodedPrompt = encodeURIComponent(prompt);
-            const targetUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&seed=${Date.now() + i}`;
-            const url = PROXY + encodeURIComponent(targetUrl);
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
-            images.push(URL.createObjectURL(blob));
-        }
-
-        const newBalance = (currentUser.ai_tokens || 0) - cost;
-        await writeFirebase(`users/${currentUser.uid}/ai_tokens`, newBalance);
-        currentUser.ai_tokens = newBalance;
-
-        await pushFirebase(`users/${currentUser.uid}/ai_history`, {
-            type: 'image',
-            prompt: prompt,
-            count: count,
-            cost: cost,
-            timestamp: Date.now()
-        });
-
-        GradusWeb.notify.success(`Сгенерировано ${count} изображений! Осталось токенов: ${newBalance}`);
-        return images;
-    } catch (e) {
-        console.error('[GradAI] Ошибка генерации изображений:', e);
-        GradusWeb.notify.error('Ошибка генерации изображений: ' + (e.message || 'Неизвестная ошибка'));
-        return null;
-    }
-}
-
-function openAIImageModal() {
-    const modal = document.getElementById('ai-image-modal');
+function openAIImageChatModal() {
+    const modal = document.getElementById('ai-image-chat-modal');
     if (modal) {
         modal.classList.add('active');
-        document.getElementById('image-result').innerHTML = '';
+        const chatMessages = document.getElementById('image-chat-messages');
+        if (chatMessages) {
+            renderImageChatMessages(chatMessages, true);
+            if (imageChatUpdateInterval) clearInterval(imageChatUpdateInterval);
+            imageChatUpdateInterval = setInterval(async () => {
+                if (!document.getElementById('ai-image-chat-modal').classList.contains('active')) {
+                    clearInterval(imageChatUpdateInterval);
+                    imageChatUpdateInterval = null;
+                    return;
+                }
+                await renderImageChatMessages(chatMessages, true);
+            }, 7000); // обновляем каждые 7 секунд (без таймаута)
+        }
         updateAITokenDisplay();
     }
 }
@@ -1072,3 +1220,4 @@ if (document.readyState === 'loading') {
 }
 
 window.openAIChatModal = openAIChatModal;
+window.openAIImageChatModal = openAIImageChatModal;
