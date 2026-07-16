@@ -941,3 +941,71 @@ button,
 .table-wrapper::-webkit-scrollbar-thumb:hover {
     background: #5a7aaa;
 }
+.table-wrapper {
+    overflow-x: auto;
+    margin: 16px 0;
+    border-radius: 10px;
+    background: #1a1a2e;
+    border: 1px solid #2a2a3a;
+}
+
+.markdown-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    color: #e0e0e0;
+    min-width: 600px;
+}
+
+.markdown-table th,
+.markdown-table td {
+    padding: 8px 12px;
+    border: 1px solid #2a2a3a;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.markdown-table th {
+    background: #2a2a3a;
+    color: #c0d0ff;
+    font-weight: 600;
+}
+
+.markdown-table td {
+    background: #12121f;
+}
+
+.markdown-table tr:nth-child(even) td {
+    background: #1a1a2e;
+}
+
+.markdown-table tbody tr:hover td {
+    background: #2a2a3a;
+}
+
+@media (max-width: 768px) {
+    .markdown-table th,
+    .markdown-table td {
+        white-space: normal;
+        font-size: 12px;
+        padding: 6px 8px;
+    }
+    .markdown-table {
+        min-width: 400px;
+    }
+}
+
+.table-wrapper::-webkit-scrollbar {
+    height: 8px;
+}
+.table-wrapper::-webkit-scrollbar-track {
+    background: #0a0a12;
+    border-radius: 4px;
+}
+.table-wrapper::-webkit-scrollbar-thumb {
+    background: #3a4a6a;
+    border-radius: 4px;
+}
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #5a7aaa;
+}
