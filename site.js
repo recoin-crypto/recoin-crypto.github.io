@@ -83,12 +83,25 @@ async function readFirebase(path) {
     }
 }
 async function writeFirebase(path, data) {
-    const url = siteConfig.firebaseURL + '/recoin/' + path + '.json';
+    let url = siteConfig.firebaseURL + '/recoin/' + path;
+    if (!url.endsWith('.json')) url += '.json';
     try {
-        await GradusServer.firebaseSet(url, data);
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const responseData = await response.json();
+        if (responseData && responseData.error) {
+            return false;
+        }
+        // Если статус не 200, но нет error, тоже ошибка
+        if (!response.ok) {
+            GradusWeb.notify.error('HTTP ошибка: ' + response.status);
+            return false;
+        }
         return true;
     } catch(e) {
-        console.error('[Reckon] writeFirebase ошибка:', e);
         return false;
     }
 }
@@ -630,6 +643,8 @@ async function loadUser(uid) {
         auto_renew_period: userData.auto_renew_period || 0
     };
     await GradusWeb.secretStorage.set('uid', uid);
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.style.display = 'inline-block';
 }
 
 async function logout() {
@@ -1413,11 +1428,35 @@ async function purchaseTokenPackage(index) {
 // ============================================================
 async function setFreeAvatar(url) {
     const fresh = await getFreshUser();
-    if (!fresh) return;
-    await writeFirebase('users/' + currentUser.uid + '/avatar', url);
+    if (!fresh) {
+        GradusWeb.notify.warning('Войдите в аккаунт');
+        return;
+    }
+    if (!fresh.uid) {
+        GradusWeb.notify.error('UID не найден');
+        return;
+    }
+
+    const path = 'users/' + fresh.uid + '/avatar';
+    const fullUrl = siteConfig.firebaseURL + '/recoin/' + path + '.json';
+    GradusWeb.notify.info('Запись в: ' + fullUrl); // для проверки
+
+    const success = await writeFirebase(path, url);
+    if (!success) {
+        GradusWeb.notify.error('Не удалось сохранить');
+        return;
+    }
+
+    // Проверим чтение
+    const readData = await readFirebase(path);
+    if (readData !== url) {
+        GradusWeb.notify.warning('Данные не записались :(');
+        return;
+    }
+
     await getFreshUser();
-    GradusWeb.notify.success('Аватарка установлена');
     await updateUIElements();
+    GradusWeb.notify.success('Аватарка установлена');
 }
 
 async function saveAvatar() {
@@ -1770,4 +1809,18 @@ async function initSite() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
     initSite();
+    window.loadUser = loadUser;
+    window.isVIPActive = isVIPActive;
+    window.getFreshUser = getFreshUser;
+    window.updateUIElements = updateUIElements;
+    window.logout = logout;
+    window.navigateTo = navigateTo;
+    window.toggleMobileMenu = toggleMobileMenu;
+    window.setFreeAvatar = setFreeAvatar;
+    window.saveAvatar = saveAvatar;
+    window.buyVIP = buyVIP;
+    window.purchaseTokenPackage = purchaseTokenPackage;
+    window.openModal = openModal;
+    window.closeModal = closeModal;
+    window.generateCaptchaImage = generateCaptchaImage;
 });
