@@ -1,23 +1,31 @@
 // ============================================================
-// ai.js — GradAI 4.2 (полностью обновлён)
-// Поддерживает текстовые режимы и генерацию изображений (асинхронно)
+// ai.js — GradAI 4.2 / 5 (полная версия)
+// Поддерживает выбор версии и режимов: TURBO, HIGH+, CODER
 // ============================================================
 
 const AI_CONFIG = {
-    MODES: {
+    // GradAI 4.2-Mini (без плейсхолдеров)
+    MODES_MINI: {
         TURBO: { cost: 24, maxTokens: 512, label: 'TURBO (24 токена)' },
         HIGH: { cost: 70, maxTokens: 2048, label: 'HIGH+ (50 токенов)' },
-        CODER: { cost: 100, maxTokens: 16384, label: 'CODER (100 токенов)' },
-        DEEPTHINK: { cost: 85, maxTokens: 8192, label: 'DEEPTHINK (70 токенов)' }
+        CODER: { cost: 100, maxTokens: 8192, label: 'CODER (100 токенов)' }
+    },
+    // GradAI 5 (с плейсхолдерами, токены увеличены)
+    MODES_FULL: {
+        TURBO: { cost: 40, maxTokens: 1024, label: 'TURBO (24 токена)' }, // TURBO без плейсхолдеров
+        HIGH: { cost: 110, maxTokens: 4096, label: 'HIGH+ (50 токенов)' },
+        CODER: { cost: 150, maxTokens: 16384, label: 'CODER (100 токенов)' }
     },
     FREE_TIER_LIMIT: 5000,
     VIP_TIER_LIMIT: 8000,
     MODEL_NAME_TEXT: 'GradAI 4.2',
+    MODEL_NAME_TEXT_FULL: 'GradAI 5',
     MODEL_NAME_IMAGE: 'GradAI IMG-3',
     IMAGE_COST: 150
 };
 
 let currentMode = 'HIGH';
+let currentVersion = 'mini';
 let chatUpdateInterval = null;
 let imageChatUpdateInterval = null;
 
@@ -320,15 +328,19 @@ async function refreshAITokens(user) {
     const uid = user.uid;
     const now = Date.now();
     let lastRefill = user.ai_last_refill || 0;
+    const isVIP = window.isVIPActive ? window.isVIPActive(user) : false;
+    const limit = isVIP ? AI_CONFIG.VIP_TIER_LIMIT : AI_CONFIG.FREE_TIER_LIMIT;
 
+    // Если никогда не было пополнения, выдаём токены сейчас
     if (lastRefill === 0) {
+        await writeFirebase(`users/${uid}/ai_tokens`, limit);
         await writeFirebase(`users/${uid}/ai_last_refill`, now);
+        user.ai_tokens = limit;
         user.ai_last_refill = now;
+        GradusWeb.notify.info(`Выдано ${limit} бесплатных AI-токенов!`);
         return;
     }
 
-    const isVIP = window.isVIPActive ? window.isVIPActive(user) : false;
-    const limit = isVIP ? AI_CONFIG.VIP_TIER_LIMIT : AI_CONFIG.FREE_TIER_LIMIT;
     const oneMonth = 30 * 24 * 60 * 60 * 1000;
 
     if (now - lastRefill >= oneMonth) {
@@ -374,7 +386,8 @@ async function sendAIRequest(prompt) {
 
     await refreshAITokens(currentUser);
 
-    const modeConfig = AI_CONFIG.MODES[currentMode];
+    const modes = currentVersion === 'full' ? AI_CONFIG.MODES_FULL : AI_CONFIG.MODES_MINI;
+    const modeConfig = modes[currentMode];
     const cost = modeConfig.cost;
 
     if ((currentUser.ai_tokens || 0) < cost) {
@@ -394,6 +407,7 @@ async function sendAIRequest(prompt) {
         timestamp: Date.now(),
         mode: currentMode,
         max_tokens: modeConfig.maxTokens,
+        version: currentVersion,
         type: 'text'
     };
 
@@ -526,8 +540,13 @@ function updateAITokenDisplay() {
     });
     const modeInfo = document.getElementById('ai-mode-info');
     if (modeInfo) {
-        const mode = AI_CONFIG.MODES[currentMode];
+        const modes = currentVersion === 'full' ? AI_CONFIG.MODES_FULL : AI_CONFIG.MODES_MINI;
+        const mode = modes[currentMode];
         modeInfo.textContent = `Режим: ${mode.label}`;
+    }
+    const versionInfo = document.getElementById('ai-version-info');
+    if (versionInfo) {
+        versionInfo.textContent = `Версия: ${currentVersion === 'full' ? 'GradAI 5' : 'GradAI 4.2-Mini'}`;
     }
 }
 
@@ -556,7 +575,7 @@ async function renderAIHistory() {
             statusText = '❌ Ошибка';
         }
         const response = entry.status === 'done' ? escapeHtml(entry.response) : statusText;
-        const modeLabel = AI_CONFIG.MODES[entry.mode]?.label || entry.mode;
+        const modeLabel = AI_CONFIG.MODES_MINI[entry.mode]?.label || entry.mode;
         html += `<div class="ai-history-item">
             <div><strong>📝 Текст</strong> — <span class="ai-date">${date}</span> ${statusText}</div>
             <div style="font-size: 13px; color: #aaa;">Запрос: ${prompt}</div>
@@ -712,7 +731,7 @@ async function renderChatMessages(chatMessages, keepScroll = false) {
 }
 
 // ============================================================
-// Генерация ИЗОБРАЖЕНИЙ (асинхронно, без таймаутов)
+// Генерация ИЗОБРАЖЕНИЙ
 // ============================================================
 async function sendImageRequest(prompt) {
     if (!currentUser) {
@@ -791,7 +810,6 @@ async function loadImageHistory() {
     return entries;
 }
 
-// Функция для скачивания изображения
 window.downloadImage = function(url, filename) {
     fetch(url)
         .then(resp => resp.blob())
@@ -805,12 +823,10 @@ window.downloadImage = function(url, filename) {
             URL.revokeObjectURL(a.href);
         })
         .catch(() => {
-            // fallback: открыть в новой вкладке
             window.open(url, '_blank');
         });
 };
 
-// Рендеринг чата для изображений
 async function renderImageChatMessages(chatMessages, keepScroll = false) {
     if (!chatMessages) return;
     const history = await loadImageHistory();
@@ -841,14 +857,12 @@ async function renderImageChatMessages(chatMessages, keepScroll = false) {
 
         newMsgCount++;
 
-        // Сообщение пользователя
         const userMsg = document.createElement('div');
         userMsg.className = 'chat-message user';
         userMsg.dataset.msgId = msgId + '_user';
         userMsg.innerHTML = `<div class="msg-author">Вы</div><div class="msg-text">${escapeHtml(entry.prompt)}</div>`;
         fragment.appendChild(userMsg);
 
-        // Сообщение ассистента (картинка)
         const assistantMsg = document.createElement('div');
         assistantMsg.className = 'chat-message assistant';
         assistantMsg.dataset.msgId = msgId;
@@ -879,7 +893,6 @@ async function renderImageChatMessages(chatMessages, keepScroll = false) {
         scrollToBottom = true;
     }
 
-    // Обновляем статус существующих сообщений (если поменялся)
     for (let child of chatMessages.children) {
         if (child.classList.contains('assistant')) {
             const id = child.dataset.msgId;
@@ -968,7 +981,7 @@ function setupModalHandlers() {
 
     if (chatModeSelect) {
         chatModeSelect.innerHTML = '';
-        for (const [key, mode] of Object.entries(AI_CONFIG.MODES)) {
+        for (const [key, mode] of Object.entries(AI_CONFIG.MODES_MINI)) {
             const option = document.createElement('option');
             option.value = key;
             option.textContent = mode.label;
@@ -980,6 +993,22 @@ function setupModalHandlers() {
             updateAITokenDisplay();
         });
     }
+
+    // Версия ИИ
+    /* const versionSelect = document.createElement('select');
+    versionSelect.id = 'chat-version-select';
+    versionSelect.style.cssText = 'background:#1a1a28; border:1px solid #2a2a3a; border-radius:6px; color:#e0e0e0; padding:4px 8px; font-size:13px; margin-left:10px;';
+    versionSelect.innerHTML = `
+        <option value="mini">GradAI 4.2-Mini</option>
+        <option value="full">GradAI 5</option>
+    `;
+    if (chatModeSelect) {
+        chatModeSelect.parentNode.insertBefore(versionSelect, chatModeSelect.nextSibling);
+        versionSelect.addEventListener('change', function() {
+            currentVersion = this.value;
+            updateAITokenDisplay();
+        });
+    } */
 
     if (chatSend && chatInput && chatMessages) {
         chatSend.addEventListener('click', async function() {
@@ -1055,7 +1084,7 @@ function setupModalHandlers() {
         });
     }
 
-    // ---- Чат для изображений (асинхронный) ----
+    // ---- Чат для изображений ----
     const imageChatModal = document.getElementById('ai-image-chat-modal');
     const imageChatMessages = document.getElementById('image-chat-messages');
     const imageChatInput = document.getElementById('image-chat-input');
@@ -1072,7 +1101,6 @@ function setupModalHandlers() {
             const prompt = imageChatInput.value.trim();
             if (!prompt) return;
 
-            // Проверяем баланс
             await refreshAITokens(currentUser);
             const cost = AI_CONFIG.IMAGE_COST;
             if ((currentUser.ai_tokens || 0) < cost) {
@@ -1080,16 +1108,13 @@ function setupModalHandlers() {
                 return;
             }
 
-            // Отправляем запрос (без временных сообщений)
             const requestId = await sendImageRequest(prompt);
             if (!requestId) {
                 GradusWeb.notify.error('Не удалось создать запрос');
                 return;
             }
 
-            // Очищаем поле ввода
             imageChatInput.value = '';
-            // Принудительно обновляем чат, чтобы показать новый pending-запрос
             await renderImageChatMessages(imageChatMessages, true);
             GradusWeb.notify.info('Запрос на генерацию изображения отправлен. Ожидайте...');
         });
@@ -1102,7 +1127,6 @@ function setupModalHandlers() {
         });
     }
 
-    // Очистка истории изображений
     if (imageChatClear) {
         imageChatClear.addEventListener('click', async function() {
             if (!currentUser) {
@@ -1127,8 +1151,8 @@ function setupModalHandlers() {
         });
     }
 
-    // ---- Остальные модалки (настройки, VIP, друзья и т.д.) ----
-    // Здесь оставляем без изменений (они в site.js)
+    // ---- Остальные модалки (настройки, VIP, друзья) ----
+    // Здесь код из site.js (не трогаем)
 }
 
 // ============================================================
@@ -1170,7 +1194,7 @@ function openAIImageChatModal() {
                     return;
                 }
                 await renderImageChatMessages(chatMessages, true);
-            }, 7000); // обновляем каждые 7 секунд (без таймаута)
+            }, 7000);
         }
         updateAITokenDisplay();
     }
