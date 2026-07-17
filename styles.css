@@ -56,7 +56,11 @@ a:hover { color: #7bb8ff; }
     letter-spacing: 1px;
     color: #fff;
 }
-.logo span { color: #4a9eff; }
+.logo span.white { color: rgb(255,255,255); }
+.logo span.blue { color: #4a9eff; }
+.logo span.green { color: rgb(10, 223, 45); }
+.logo span.red { color: rgb(200, 15, 25); }
+.logo span.yellow { color: rgb(240, 240, 22); }
 
 .nav {
     display: flex;
@@ -1008,4 +1012,81 @@ button,
 }
 .table-wrapper::-webkit-scrollbar-thumb:hover {
     background: #5a7aaa;
+}
+
+/* ===== Мобильная адаптация чата ===== */
+@media (max-width: 768px) {
+    .chat-message {
+        max-width: 90%;
+        font-size: 14px;
+        padding: 6px 10px;
+    }
+    .chat-message .msg-author {
+        font-size: 12px;
+    }
+    .chat-message .msg-text {
+        font-size: 13px;
+        line-height: 1.4;
+        word-break: break-word;
+    }
+    .modal-content {
+        padding: 16px;
+        max-width: 95%;
+    }
+    .modal-content h2 {
+        font-size: 20px;
+    }
+    #chat-messages, #image-chat-messages {
+        max-height: 300px !important;
+    }
+    .code-block pre {
+        font-size: 12px;
+        padding: 8px;
+    }
+    .copy-code-btn {
+        font-size: 10px;
+        padding: 2px 8px;
+    }
+    .think-block {
+        padding: 6px 10px;
+        margin: 6px 0;
+    }
+    .think-toggle {
+        font-size: 12px;
+        padding: 2px 12px;
+    }
+    .think-content {
+        font-size: 13px;
+        padding: 6px 8px;
+    }
+    .run-html-btn {
+        font-size: 12px;
+        padding: 2px 10px;
+    }
+    #chat-input, #image-chat-input {
+        font-size: 14px;
+        min-height: 36px;
+        padding: 6px;
+    }
+    .chat-message .msg-text img {
+        max-width: 100%;
+        height: auto;
+    }
+}
+
+.header .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.logout-btn {
+    margin-left: auto; /* прижимает к правому краю */
+    order: 3;          /* если нужно, чтобы был после навигации */
+}
+@media (max-width: 768px) {
+    .logout-btn {
+        order: 2;       /* на мобильных можно поставить перед гамбургером */
+        margin-left: auto;
+    }
 }
